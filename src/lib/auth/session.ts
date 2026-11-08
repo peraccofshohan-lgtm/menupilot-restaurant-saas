@@ -117,7 +117,11 @@ export async function signIn(email: string, password: string): Promise<AuthResul
     throw new AuthError("Email or password is incorrect.", "INVALID_CREDENTIALS");
   }
 
-  await db.query("update auth.users set last_sign_in_at = now() where id = $1", [row.id]);
+  // Sign-in tracking belongs in our own table. `auth.users` is GoTrue's on a
+  // Supabase project: writing to it would either fail on a column it lacks or
+  // silently diverge from GoTrue's own bookkeeping. `user_credentials` exists on
+  // both engines and is owned by the application.
+  await db.query("update public.user_credentials set last_sign_in_at = now() where user_id = $1", [row.id]);
   return createSession({ id: row.id, email: row.email, fullName: row.full_name, phone: row.phone });
 }
 

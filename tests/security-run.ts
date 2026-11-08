@@ -7,16 +7,25 @@
  *
  *   npm run test:security
  *
- * Against a real Supabase project, set DATABASE_URL first: the suite then runs
- * against that database instead of the embedded engine, which is how the
- * deployment is verified end to end.
+ * To run against a real project (this is how the deployment is verified end to end):
+ *
+ *   DATABASE_URL="postgresql://…:6543/postgres" \
+ *   MENUPILOT_TEST_EXTERNAL=1 \
+ *   npm run test:security
+ *
+ * The schema must already be migrated — the suite never applies DDL to a target it
+ * did not create. Fixtures are written into that database and removed in teardown;
+ * the demo tenant is never touched.
  */
 import "dotenv/config";
 import { setup, teardown } from "./harness";
 
 async function main() {
   const started = Date.now();
-  const target = process.env.DATABASE_URL ? "DATABASE_URL target" : "embedded PostgreSQL";
+  const external = process.env.DATABASE_URL && process.env.MENUPILOT_TEST_EXTERNAL === "1";
+  const target = external
+    ? `external database ${new URL(process.env.DATABASE_URL!).host}`
+    : "embedded PostgreSQL (temporary)";
   console.log(`\n  MenuPilot security audit — ${target}\n`);
 
   await setup();
@@ -38,6 +47,7 @@ async function main() {
   });
 
   await teardown();
+  if (external) console.log("  fixtures removed from the target database");
 
   console.log(
     `\n  ${passed} passed, ${failed > 0 ? `\x1b[31m${failed} failed\x1b[0m` : "0 failed"} · ${(

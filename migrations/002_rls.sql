@@ -260,6 +260,20 @@ create policy audit_owner_read on public.audit_logs for select to authenticated
 -- storage_objects: no policies at all => only service_role (BYPSRLS) can touch
 -- file bytes. Files are streamed through an authenticated application route.
 
--- anon must not be able to read auth tables
-revoke all on auth.users from anon, authenticated;
-revoke all on auth.sessions from anon, authenticated;
+-- anon must not be able to read auth tables.
+--
+-- On a Supabase project these tables belong to GoTrue's role and this REVOKE can
+-- fail with "must be owner of table users", aborting the migration. Supabase already
+-- applies exactly this lockdown, so the statement is restricted to the local
+-- stand-in. `scripts/supabase-setup.ts --check` verifies the live project really is
+-- locked down, so this is checked rather than assumed.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'auth' and table_name = 'users' and column_name = 'instance_id'
+  ) then
+    execute 'revoke all on auth.users from anon, authenticated';
+    execute 'revoke all on auth.sessions from anon, authenticated';
+  end if;
+end $$;

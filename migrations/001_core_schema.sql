@@ -57,7 +57,19 @@ create table if not exists auth.users (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create unique index if not exists auth_users_email_key on auth.users (lower(email));
+-- Indexes only for the local stand-in. On a Supabase project `auth.users` is owned
+-- by GoTrue's role and carries its own indexes; issuing `create index` against it
+-- fails with "must be owner of table users" and would abort the whole migration.
+-- GoTrue's table has `instance_id`; our stand-in does not, which is the discriminator.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'auth' and table_name = 'users' and column_name = 'instance_id'
+  ) then
+    execute 'create unique index if not exists auth_users_email_key on auth.users (lower(email))';
+  end if;
+end $$;
 
 create table if not exists auth.sessions (
   id uuid primary key default gen_random_uuid(),
@@ -68,7 +80,18 @@ create table if not exists auth.sessions (
   created_at timestamptz not null default now(),
   last_used_at timestamptz
 );
-create index if not exists auth_sessions_user_idx on auth.sessions (user_id);
+do $$
+begin
+  -- Same rule: `auth.sessions` is GoTrue's on Supabase. The application stores its
+  -- own sessions in public.app_sessions (see 007), so this index is only ever
+  -- useful for the local stand-in.
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'auth' and table_name = 'users' and column_name = 'instance_id'
+  ) then
+    execute 'create index if not exists auth_sessions_user_idx on auth.sessions (user_id)';
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Generic updated_at trigger
@@ -439,7 +462,17 @@ create trigger trg_orders_touch before update on public.orders
 -- Grants (RLS is the authorization layer; grants are the coarse gate)
 -- ---------------------------------------------------------------------------
 grant usage on schema public to anon, authenticated, service_role;
-grant usage on schema auth to anon, authenticated, service_role;
+
+-- NOT granted, deliberately: `usage on schema auth`.
+--
+-- The browser never reads the auth schema. Everything it needs — the staff
+-- directory, the account directory, the platform tenant list — is served by
+-- SECURITY DEFINER functions in `public` that run as the owner and can reach
+-- `auth` themselves. Granting usage to `anon`/`authenticated` would widen the
+-- attack surface for nothing, and on a Supabase project that schema belongs to
+-- GoTrue's role, so the grant can fail outright.
+--
+-- `scripts/simulate-gotrue.ts` asserts that no browser role holds this privilege.
 
 grant select on public.restaurants, public.categories, public.menu_items,
   public.menu_item_images, public.restaurant_settings

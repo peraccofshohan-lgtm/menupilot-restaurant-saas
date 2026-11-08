@@ -17,7 +17,10 @@
     "storage:setup": "tsx scripts/supabase-setup.ts",
     "storage:gc": "tsx scripts/storage-gc.ts",
     "test:security": "tsx tests/security-run.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "test:security:remote": "MENUPILOT_TEST_EXTERNAL=1 tsx tests/security-run.ts",
+    "db:migrate:remote": "tsx scripts/db-migrate.ts",
+    "test:gotrue": "tsx scripts/simulate-gotrue.ts"
   },
   "repository": {
     "type": "git",

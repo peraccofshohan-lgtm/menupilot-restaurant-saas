@@ -39,6 +39,11 @@ create table if not exists public.user_credentials (
   updated_at timestamptz not null default now()
 );
 
+-- Sign-in bookkeeping lives here, not in GoTrue's auth.users. Added in 012 for
+-- databases created before it; declared here so a fresh database has it from the
+-- start. See 012 for why.
+alter table public.user_credentials add column if not exists last_sign_in_at timestamptz;
+
 comment on table public.user_credentials is
   'MenuPilot-owned credential material. Kept separate from auth.users so the app works identically on a self-managed Postgres and on a Supabase project where GoTrue owns the auth schema.';
 
@@ -103,9 +108,13 @@ begin
     $q$;
   end if;
 
+  -- Only the local stand-in has `full_name`/`phone` on auth.users. On a Supabase
+  -- project those live in raw_user_meta_data and this carry-over is skipped; there
+  -- is nothing to carry over anyway because MenuPilot has never run there yet.
+  -- Migration 012 re-runs the carry-over correctly for both shapes.
   if exists (
     select 1 from information_schema.columns
-     where table_schema = 'auth' and table_name = 'users' and column_name = 'encrypted_password'
+     where table_schema = 'auth' and table_name = 'users' and column_name = 'full_name'
   ) then
     execute $q$
       insert into public.user_credentials (user_id, password_hash, full_name, phone, created_at, updated_at)

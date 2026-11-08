@@ -86,10 +86,37 @@ async function verifyDatabase(): Promise<void> {
     console.log("  · DATABASE_URL not set — skipping database verification");
     return;
   }
+
   const db = createPostgresDatabase(process.env.DATABASE_URL);
   try {
-    const applied = await migrate(db, (m) => console.log(`  ✓ applied ${m}`));
-    if (applied.length === 0) console.log("  · migrations already up to date");
+    if (checkOnly) {
+      // --check must not write anything to the target. `migrate()` maintains a
+      // bookkeeping table, so it is never called on this path; instead the applied
+      // set is compared to the files on disk and reported.
+      const applied = await db
+        .query<{ version: string }>("select version from public.schema_migrations")
+        .then((res) => res.rows.map((r) => r.version))
+        .catch(() => [] as string[]);
+      const { readdirSync } = await import("node:fs");
+      const path = await import("node:path");
+      const expected = readdirSync(path.join(process.cwd(), "migrations"))
+        .filter((f) => f.endsWith(".sql"))
+        .sort();
+      const pending = expected.filter((f) => !applied.includes(f));
+
+      if (applied.length === 0) {
+        console.log("  ✗ no migrations recorded — this database is not provisioned");
+      } else if (pending.length > 0) {
+        console.log(`  ✗ ${pending.length} migration(s) pending: ${pending.join(", ")}`);
+        console.log("    apply them with scripts/db-migrate.ts (never from --check)");
+        process.exitCode = 1;
+      } else {
+        console.log(`  ✓ all ${expected.length} migrations applied`);
+      }
+    } else {
+      const applied = await migrate(db, (m) => console.log(`  ✓ applied ${m}`));
+      if (applied.length === 0) console.log("  · migrations already up to date");
+    }
 
     const res = await db.query<{
       result: { ok: boolean; missing: string[]; detail: Record<string, unknown> };
@@ -107,7 +134,9 @@ async function verifyDatabase(): Promise<void> {
 
     console.log(`  ✓ schema complete (Postgres ${detail.engine?.server_version ?? "?"})`);
     console.log(`  ✓ auth schema managed by GoTrue: ${detail.engine?.gotrue_managed ? "yes" : "no"}`);
-    console.log(`  · tenants: ${detail.tenants ?? 0} · demo dishes: ${detail.demo_items ?? 0} · demo tables: ${detail.demo_tables ?? 0}`);
+    console.log(
+      `  · tenants: ${detail.tenants ?? 0} · demo dishes: ${detail.demo_items ?? 0} · demo tables: ${detail.demo_tables ?? 0}`,
+    );
     if ((detail.rls_disabled ?? []).length > 0) {
       fail(`RLS is disabled on: ${detail.rls_disabled!.join(", ")}`);
     }
@@ -121,6 +150,38 @@ async function verifyDatabase(): Promise<void> {
       fail(`platform-admin RLS bypass present on: ${JSON.stringify(adminScoping?.bypassing_policies)}`);
     }
     console.log("  ✓ no platform-admin row-level bypass remains");
+
+    // --- security posture of identity material (read-only assertions) ---------
+    const posture = await db.query<{
+      anon_users: boolean;
+      auth_users: boolean;
+      anon_creds: boolean;
+      anon_sessions: boolean;
+    }>(
+      `select
+         has_table_privilege('anon','auth.users','select')            as anon_users,
+         has_table_privilege('authenticated','auth.users','select')   as auth_users,
+         has_table_privilege('anon','public.user_credentials','select') as anon_creds,
+         has_table_privilege('anon','public.app_sessions','select')   as anon_sessions`,
+    );
+    const p0 = posture.rows[0];
+    if (p0?.anon_users || p0?.auth_users) {
+      fail("auth.users is readable by a browser role on this project");
+    }
+    if (p0?.anon_creds || p0?.anon_sessions) {
+      fail("credential material is readable by a browser role on this project");
+    }
+    console.log("  ✓ credential material is closed to browser roles");
+
+    // RLS must actually be enforced, not merely enabled.
+    const forced = await db.query<{ relname: string; relforcerowsecurity: boolean }>(
+      `select c.relname, c.relforcerowsecurity
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity
+        order by c.relname`,
+    );
+    const notForced = forced.rows.filter((r) => !r.relforcerowsecurity).map((r) => r.relname);
+    console.log(`  ✓ RLS enabled on ${forced.rows.length} public tables${notForced.length > 0 ? ` (${notForced.length} not FORCED: ${notForced.join(", ")})` : " and forced"}`);
   } finally {
     await db.close();
   }

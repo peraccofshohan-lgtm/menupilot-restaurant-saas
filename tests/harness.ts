@@ -10,15 +10,48 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { createPgliteDatabase } from "../src/lib/db/pglite";
+import { createPostgresDatabase } from "../src/lib/db/postgres";
 import { migrate } from "../src/lib/db/migrate";
 import type { Database, Queryable } from "../src/lib/db/types";
 import { ANON, asUser, type SessionContext } from "../src/lib/db/types";
 
 let dbInstance: Database | null = null;
 let dataDir: string | null = null;
+/** True when the suite is pointed at an existing database (a real project). */
+let externalTarget = false;
+/** Every row group the fixtures created, so an external target can be cleaned up. */
+const created = { restaurants: [] as string[], users: [] as string[] };
+
+export function isExternalTarget(): boolean {
+  return externalTarget;
+}
 
 export async function setup(): Promise<Database> {
   if (dbInstance) return dbInstance;
+
+  const url = process.env.DATABASE_URL;
+  if (url && process.env.MENUPILOT_TEST_EXTERNAL === "1") {
+    // Pointed at a real project. The schema must already be migrated — a test run
+    // must never apply DDL to a live database. Fixtures are written into it and
+    // removed again in teardown().
+    dbInstance = createPostgresDatabase(url);
+    externalTarget = true;
+
+    const check = await dbInstance.query<{ result: { ok: boolean; missing: string[] } }>(
+      "select public.mp_check_schema() as result",
+    );
+    if (!check.rows[0]?.result?.ok) {
+      throw new Error(
+        `Target database is not migrated (missing: ${check.rows[0]?.result?.missing?.join(", ") ?? "unknown"}). ` +
+          "Run scripts/db-migrate.ts first; the test suite never applies DDL itself.",
+      );
+    }
+
+    (globalThis as unknown as { __menupilotDb?: Promise<Database> }).__menupilotDb =
+      Promise.resolve(dbInstance);
+    return dbInstance;
+  }
+
   dataDir = await mkdtemp(path.join(tmpdir(), "menupilot-test-"));
   dbInstance = await createPgliteDatabase(dataDir);
   await migrate(dbInstance);
@@ -33,11 +66,40 @@ export async function setup(): Promise<Database> {
 }
 
 export async function teardown(): Promise<void> {
+  if (dbInstance && externalTarget) {
+    await cleanupExternal(dbInstance);
+  }
   if (dbInstance) await dbInstance.close();
   (globalThis as unknown as { __menupilotDb?: Promise<Database> | null }).__menupilotDb = null;
   dbInstance = null;
   if (dataDir) await rm(dataDir, { recursive: true, force: true });
   dataDir = null;
+}
+
+/**
+ * Removes everything the fixtures created from a real database.
+ *
+ * Deleting the restaurants cascades through every tenant table (orders, menu items,
+ * tables, QR tokens, memberships). Identities go last, because membership rows
+ * reference them. Failures are reported but never mask a test result.
+ */
+async function cleanupExternal(database: Database): Promise<void> {
+  for (const id of created.restaurants) {
+    await database.query("delete from public.restaurants where id = $1", [id]).catch(() => undefined);
+  }
+  for (const id of created.users) {
+    await database.query("delete from public.app_sessions where user_id = $1", [id]).catch(() => undefined);
+    await database.query("delete from public.user_credentials where user_id = $1", [id]).catch(() => undefined);
+    await database.query("delete from public.platform_admins where user_id = $1", [id]).catch(() => undefined);
+    await database.query("delete from auth.users where id = $1", [id]).catch(() => undefined);
+  }
+  const leftover = await database.query<{ restaurants: number }>(
+    "select count(*)::int as restaurants from public.restaurants where slug like 'tenant-%'",
+  );
+  const restaurants = Number(leftover.rows[0]?.restaurants ?? 0);
+  if (restaurants > 0) {
+    console.warn(`[harness] ${restaurants} fixture restaurant(s) may remain on the target database`);
+  }
 }
 
 export async function db(): Promise<Database> {
@@ -101,6 +163,7 @@ export async function createUser(email: string, password = "TestPass123"): Promi
     [email],
   );
   const userId = res.rows[0]!.id;
+  created.users.push(userId);
   await database.query(
     "insert into public.user_credentials (user_id, password_hash, full_name) values ($1,$2,$3)",
     [userId, hash, email.split("@")[0]],
@@ -121,6 +184,7 @@ async function buildTenant(
     [name, slug, ownerId],
   );
   const restaurantId = rest.rows[0]!.id;
+  created.restaurants.push(restaurantId);
 
   await database.query(
     `insert into restaurant_settings (restaurant_id, tax_rate, tax_label, service_charge_rate,
