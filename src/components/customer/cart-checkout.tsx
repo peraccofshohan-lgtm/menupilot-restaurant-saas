@@ -1,5 +1,6 @@
 "use client";
 
+import { mediaUrl } from "@/lib/media";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -11,7 +12,7 @@ import { cx } from "@/components/ui";
 
 interface PlacedOrder {
   orderNumber: string;
-  trackingToken: string;
+  trackingToken: string | null;
   total: string;
   currency: string;
   itemCount: number;
@@ -99,7 +100,13 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
       }
       clear();
       setPlaced(data.order);
-      router.replace(`/order/${data.order.trackingToken}`);
+      // A replay returns no token (the raw value was issued once). Stay on the
+      // confirmation screen rather than navigating to a dead tracker link.
+      if (data.order.trackingToken) {
+        router.replace(`/order/${data.order.trackingToken}`);
+      } else {
+        setSubmitting(false);
+      }
     } catch {
       setError("Your connection dropped while sending the order. Check with your server before trying again.");
       setSubmitting(false);
@@ -118,12 +125,19 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
           {formatMoney(placed.total, placed.currency)}
         </p>
         <p className="mt-1 text-[12.5px] text-ink-400">Reference {placed.orderNumber}</p>
-        <Link
-          href={`/order/${placed.trackingToken}`}
-          className="mt-6 inline-flex h-11 items-center rounded-xl bg-clay-600 px-5 text-[13.5px] font-semibold text-white"
-        >
-          Follow your order
-        </Link>
+        {placed.trackingToken ? (
+          <Link
+            href={`/order/${placed.trackingToken}`}
+            className="mt-6 inline-flex h-11 items-center rounded-xl bg-clay-600 px-5 text-[13.5px] font-semibold text-white"
+          >
+            Follow your order
+          </Link>
+        ) : (
+          <p className="mx-auto mt-6 max-w-sm text-[12.5px] leading-relaxed text-ink-500">
+            This order was already sent from this device, so the live tracker link is not shown again.
+            Show your reference number at the counter.
+          </p>
+        )}
       </main>
     );
   }
@@ -186,7 +200,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
             <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-ink-100">
               {item.image_path ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={`/api/media/menu/${item.image_path}`} alt={item.name} className="size-full object-cover" />
+                <img src={mediaUrl("menu", item.image_path)!} alt={item.name} className="size-full object-cover" />
               ) : (
                 <span className="grid size-full place-items-center text-ink-300"><ChefHat className="size-4" aria-hidden /></span>
               )}

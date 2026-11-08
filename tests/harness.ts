@@ -22,11 +22,19 @@ export async function setup(): Promise<Database> {
   dataDir = await mkdtemp(path.join(tmpdir(), "menupilot-test-"));
   dbInstance = await createPgliteDatabase(dataDir);
   await migrate(dbInstance);
+
+  // Point the application's shared handle at this database. Without this, service
+  // code (signIn, getSessionUser, storage) would silently talk to `.data/pglite`
+  // while the tests assert against the temp database — an integration test that
+  // passes for the wrong reason is worse than no test.
+  (globalThis as unknown as { __menupilotDb?: Promise<Database> }).__menupilotDb =
+    Promise.resolve(dbInstance);
   return dbInstance;
 }
 
 export async function teardown(): Promise<void> {
   if (dbInstance) await dbInstance.close();
+  (globalThis as unknown as { __menupilotDb?: Promise<Database> | null }).__menupilotDb = null;
   dbInstance = null;
   if (dataDir) await rm(dataDir, { recursive: true, force: true });
   dataDir = null;
@@ -85,11 +93,19 @@ export async function createUser(email: string, password = "TestPass123"): Promi
   const database = await db();
   const { hashPassword } = await import("../src/lib/auth/password");
   const hash = await hashPassword(password);
+  // Same shape the application writes: identity in auth.users (GoTrue-compatible),
+  // credential material in public.user_credentials. This is what makes the suite
+  // run unchanged against a Supabase database.
   const res = await database.query<{ id: string }>(
-    "insert into auth.users (email, encrypted_password, full_name, email_confirmed_at) values ($1,$2,$3,now()) returning id",
-    [email, hash, email.split("@")[0]],
+    "insert into auth.users (email, email_confirmed_at) values ($1, now()) returning id",
+    [email],
   );
-  return res.rows[0]!.id;
+  const userId = res.rows[0]!.id;
+  await database.query(
+    "insert into public.user_credentials (user_id, password_hash, full_name) values ($1,$2,$3)",
+    [userId, hash, email.split("@")[0]],
+  );
+  return userId;
 }
 
 async function buildTenant(

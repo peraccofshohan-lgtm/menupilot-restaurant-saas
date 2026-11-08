@@ -2,6 +2,11 @@
 
 Target: any Node host that runs Next.js (Vercel recommended), with Supabase as the managed backend.
 
+> **The complete, current runbook is [`SUPABASE.md`](./SUPABASE.md).** It covers the
+> storage buckets, realtime authorization, email, the deployment checklist and the
+> precise line between what is tested and what still needs a live project. This file
+> is the short version.
+
 ## 1. Supabase project
 
 1. Create a project at <https://supabase.com>.
@@ -9,17 +14,31 @@ Target: any Node host that runs Next.js (Vercel recommended), with Supabase as t
    ```
    DATABASE_URL=postgres://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
    ```
-3. Create a Storage bucket named `branding` (public read) and `menu` (public read), or keep
-   `STORAGE_DRIVER=local` and store media in the database.
+3. Create the storage buckets — do not do this by hand, the script sets the size and
+   MIME limits too:
+   ```bash
+   SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… DATABASE_URL=… npx tsx scripts/supabase-setup.ts
+   ```
 
 ## 2. Migrations
 
-The policy set in `002_rls.sql` creates `anon`, `authenticated` and `service_role` only if they are missing, and
-adds to `auth.users`/`auth.sessions` non-destructively, so it is safe on a Supabase database. Run:
+Every migration is additive and idempotent, and none of them create or alter columns in
+GoTrue's `auth.users` beyond making a local stand-in compatible. Application identity
+lives in `public.user_credentials` and `public.app_sessions` (see `DATABASE.md`), so the
+same set applies cleanly to a Supabase project. Run:
 
 ```bash
 DATABASE_URL="postgres://…" npm run db:migrate
 ```
+
+Then verify what landed rather than assuming:
+
+```bash
+DATABASE_URL="postgres://…" npx tsx scripts/supabase-setup.ts --check
+```
+
+It prints `schema complete`, whether GoTrue owns `auth`, the tenant/demo counts, and
+whether any platform-admin row-level bypass survived.
 
 If you use Supabase Auth instead of the built-in auth module, point your application's sign-in flow at GoTrue and
 keep the same `auth.users` id space — the migrations already reference it.

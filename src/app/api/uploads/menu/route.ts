@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
-import { getTenantContext } from "@/lib/auth/server";
-import { asAuthed } from "@/lib/auth/server";
-import { MAX_UPLOAD_BYTES, slugifyFilename, storage, validateImageUpload } from "@/lib/services/storage";
+import { asAuthed, getTenantContext } from "@/lib/auth/server";
+import {
+  MAX_UPLOAD_BYTES,
+  detectImageType,
+  extensionFor,
+  replaceObject,
+  slugifyFilename,
+  storage,
+  validateImageUpload,
+} from "@/lib/services/storage";
 import { setItemImage } from "@/lib/services/menu";
 
 /**
@@ -10,6 +17,10 @@ import { setItemImage } from "@/lib/services/menu";
  * Authorization is resolved from the session (owner/manager of the active tenant).
  * The restaurant id in the storage path comes from that context — never the form —
  * so a client cannot write into another tenant's folder.
+ *
+ * Validation is layered: declared MIME + size, then the real file signature, then
+ * a pixel-decode with sharp, then a re-encode that strips EXIF. Only the sanitized
+ * bytes are stored, so an uploaded file can never carry an embedded payload.
  */
 export const dynamic = "force-dynamic";
 
@@ -38,37 +49,55 @@ export async function POST(request: Request) {
   if (validation) return NextResponse.json({ ok: false, error: validation }, { status: 422 });
 
   const bytes = Buffer.from(await file.arrayBuffer());
-  // Verify the bytes actually are an image the browser declared, not a renamed file.
-  const signature = bytes.subarray(0, 12);
-  const isJpeg = signature[0] === 0xff && signature[1] === 0xd8;
-  const isPng = signature[0] === 0x89 && signature[1] === 0x50 && signature[2] === 0x4e && signature[3] === 0x47;
-  const isWebp = signature.subarray(0, 4).toString("ascii") === "RIFF" && signature.subarray(8, 12).toString("ascii") === "WEBP";
-  if (!isJpeg && !isPng && !isWebp) {
+  const declared = detectImageType(bytes);
+  if (!declared) {
     return NextResponse.json({ ok: false, error: "That file is not a valid JPEG, PNG or WebP image." }, { status: 422 });
   }
 
-  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
-  const filename = `${slugifyFilename(file.name)}-${Date.now().toString(36)}.${extension}`;
-  const path = `${tenant.restaurantId}/menu/${filename}`;
+  // Decode and re-encode: proves the file is a real image and drops metadata.
+  let sanitized: Buffer;
+  try {
+    const sharp = (await import("sharp")).default;
+    sanitized = await sharp(bytes, { failOn: "error" })
+      .rotate()
+      .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+  } catch {
+    return NextResponse.json({ ok: false, error: "That image could not be read. Try a different file." }, { status: 422 });
+  }
+
+  // The dish's current image is replaced, not stacked: the old object is deleted
+  // only after the new one is stored and the row is updated.
+  const current = await asAuthed(tenant.user, (tx) =>
+    tx.query<{ image_path: string | null }>("select image_path from menu_items where id = $1 and restaurant_id = $2", [
+      itemId || "00000000-0000-0000-0000-000000000000",
+      tenant.restaurantId,
+    ]),
+  );
+  const previousPath = current.rows[0]?.image_path ?? null;
+
+  const path = `${tenant.restaurantId}/menu/${slugifyFilename(file.name)}-${Date.now().toString(36)}.${extensionFor("image/jpeg")}`;
 
   try {
-    await storage().put({
-      bucket: "menu",
-      path,
-      data: bytes,
-      contentType: file.type,
-      restaurantId: tenant.restaurantId,
-    });
-
-    if (itemId) {
-      const linked = await setItemImage(tenant.user, tenant.restaurantId, itemId, path);
-      if (!linked.ok) {
-        return NextResponse.json({ ok: true, path, url: storage().url("menu", path), warning: "Image stored but not linked to a dish." });
-      }
-    }
+    await replaceObject(
+      { bucket: "menu", path, data: sanitized, contentType: "image/jpeg", restaurantId: tenant.restaurantId },
+      previousPath,
+      async () => {
+        if (!itemId) return;
+        const linked = await setItemImage(tenant.user, tenant.restaurantId, itemId, path);
+        if (!linked.ok) throw new Error("MP:ITEM_IMAGE_NOT_LINKED");
+      },
+    );
 
     return NextResponse.json({ ok: true, path, url: storage().url("menu", path) });
   } catch (error) {
+    if (error instanceof Error && error.message === "MP:ITEM_IMAGE_NOT_LINKED") {
+      return NextResponse.json(
+        { ok: true, path, url: storage().url("menu", path), warning: "Image stored but not linked to a dish." },
+        { status: 200 },
+      );
+    }
     console.error("[upload] menu image failed", error);
     return NextResponse.json({ ok: false, error: "The upload failed. Please try again." }, { status: 503 });
   }

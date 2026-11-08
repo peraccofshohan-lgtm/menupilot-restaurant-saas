@@ -1,5 +1,6 @@
 "use client";
 
+import { mediaUrl } from "@/lib/media";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, ImagePlus, Save } from "lucide-react";
@@ -322,7 +323,7 @@ function BrandingUploader({
         <div className={`overflow-hidden rounded-lg border border-ink-200 bg-ink-50 ${kind === "logo" ? "size-16" : "h-16 w-28"}`}>
           {path ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={`/api/media/branding/${path}`} alt="" className="size-full object-cover" />
+            <img src={mediaUrl("branding", path)!} alt="" className="size-full object-cover" />
           ) : (
             <span className="grid size-full place-items-center text-ink-300"><ImagePlus className="size-4" aria-hidden /></span>
           )}

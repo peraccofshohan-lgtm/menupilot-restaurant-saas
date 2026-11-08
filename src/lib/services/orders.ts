@@ -403,7 +403,7 @@ export interface CreateOrderResult {
   order?: {
     order_id: string;
     order_number: string;
-    tracking_token: string;
+    tracking_token: string | null;
     status: OrderStatus;
     subtotal: string;
     tax_amount: string;

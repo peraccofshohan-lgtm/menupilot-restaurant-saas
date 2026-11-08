@@ -5,6 +5,7 @@ import { BellRing, ChefHat, CircleCheck, Clock3, Maximize2, Minimize2, RefreshCw
 import { Badge, Button, EmptyState, cx } from "@/components/ui";
 import type { KitchenTicket } from "@/lib/services/orders";
 import type { TenantRole } from "@/lib/auth/server";
+import { useRealtimePulse } from "@/components/dashboard/realtime-bridge";
 
 /**
  * Kitchen Display System.
@@ -65,20 +66,27 @@ export function KitchenBoard({
     }
   }, [restaurantId]);
 
+  // Kitchen display: same contract as the owner feed. A live socket triggers an
+  // immediate refresh; polling remains the correctness guarantee underneath.
+  const transport = useRealtimePulse(restaurantId, () => void refresh());
+
   React.useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     async function tick() {
       if (cancelled) return;
       await refresh();
-      if (!cancelled) timer = setTimeout(tick, document.visibilityState === "visible" ? 7000 : 25000);
+      if (!cancelled) {
+        const visible = document.visibilityState === "visible";
+        timer = setTimeout(tick, transport === "live" ? (visible ? 30000 : 60000) : visible ? 7000 : 25000);
+      }
     }
     void tick();
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [refresh]);
+  }, [refresh, transport]);
 
   // Browsers only allow audio after a gesture; arm it on the first interaction.
   React.useEffect(() => {

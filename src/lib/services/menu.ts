@@ -1,6 +1,7 @@
 import { asAuthed, type AppUser, type TenantRole } from "@/lib/auth/server";
 import type { Queryable } from "@/lib/db/types";
 import { makeSlug, Validator, isUuid } from "@/lib/validation";
+import { storage } from "@/lib/services/storage";
 
 /* ==========================================================================
    Menu + category service
@@ -382,7 +383,20 @@ export async function deleteMenuItem(
     return { ok: false, errors: { _: "You do not have permission to manage the menu." } };
   }
   if (!isUuid(itemId)) return { ok: false, errors: { _: "Unknown dish." } };
-  return asAuthed(user, async (tx) => {
+  // Files referenced by the dish go away with it — but only once the database has
+  // actually released them, so a failed delete never leaves a broken image behind.
+  const images = await asAuthed(user, (tx) =>
+    tx.query<{ storage_path: string }>(
+      `select distinct coalesce(mi.image_path, mii.storage_path) as storage_path
+         from menu_items mi
+         left join menu_item_images mii on mii.menu_item_id = mi.id
+        where mi.id = $1 and mi.restaurant_id = $2`,
+      [itemId, restaurantId],
+    ),
+  );
+  const orphaned = images.rows.map((r) => r.storage_path).filter(Boolean);
+
+  const result = await asAuthed(user, async (tx) => {
     // Historic orders keep their name/price snapshot, so a hard delete is safe
     // only for dishes that were never ordered. Otherwise we archive.
     const used = await tx.query<{ count: string }>(
@@ -394,11 +408,19 @@ export async function deleteMenuItem(
         itemId,
         restaurantId,
       ]);
-      return { ok: true as const };
+      return { ok: true as const, archived: true };
     }
     await tx.query("delete from menu_items where id = $1 and restaurant_id = $2", [itemId, restaurantId]);
-    return { ok: true as const };
+    return { ok: true as const, archived: false };
   });
+
+  // Only a real delete frees the file; an archived dish keeps its picture.
+  if (result.ok && !("archived" in result && result.archived) && orphaned.length > 0) {
+    await storage()
+      .removeMany(orphaned.map((path) => ({ bucket: "menu" as const, path })))
+      .catch((error) => console.error("[menu] orphaned media cleanup failed", error));
+  }
+  return { ok: result.ok };
 }
 
 export async function reorderMenuItems(

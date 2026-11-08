@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { asAuthed, getTenantContext } from "@/lib/auth/server";
-import { MAX_UPLOAD_BYTES, storage, validateImageUpload } from "@/lib/services/storage";
+import {
+  MAX_UPLOAD_BYTES,
+  detectImageType,
+  extensionFor,
+  replaceObject,
+  storage,
+  validateImageUpload,
+} from "@/lib/services/storage";
 
 /**
  * Branding upload (logo / cover).
@@ -8,6 +15,9 @@ import { MAX_UPLOAD_BYTES, storage, validateImageUpload } from "@/lib/services/s
  * The storage path is derived from the session's tenant, and the database update is
  * performed through the user's RLS identity, so a manager of restaurant A cannot
  * write to restaurant B's branding or settings row.
+ *
+ * The previous file is deleted after the new one is live, so the guest menu never
+ * shows a broken logo during a swap.
  */
 export const dynamic = "force-dynamic";
 
@@ -34,23 +44,53 @@ export async function POST(request: Request) {
   if (validation) return NextResponse.json({ ok: false, error: validation }, { status: 422 });
 
   const bytes = Buffer.from(await file.arrayBuffer());
-  const sig = bytes.subarray(0, 12);
-  const ok =
-    (sig[0] === 0xff && sig[1] === 0xd8) ||
-    (sig[0] === 0x89 && sig[1] === 0x50 && sig[2] === 0x4e && sig[3] === 0x47) ||
-    (sig.subarray(0, 4).toString("ascii") === "RIFF" && sig.subarray(8, 12).toString("ascii") === "WEBP");
-  if (!ok) return NextResponse.json({ ok: false, error: "That file is not a valid image." }, { status: 422 });
+  if (!detectImageType(bytes)) {
+    return NextResponse.json({ ok: false, error: "That file is not a valid image." }, { status: 422 });
+  }
 
-  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
-  const path = `${tenant.restaurantId}/${kind}/${kind}-${Date.now().toString(36)}.${extension}`;
+  // A logo stays transparent (PNG); covers are photographic and get flattened.
+  let sanitized: Buffer;
+  let contentType: "image/png" | "image/jpeg";
+  try {
+    const sharp = (await import("sharp")).default;
+    const pipeline = sharp(bytes, { failOn: "error" }).rotate();
+    if (kind === "logo") {
+      sanitized = await pipeline
+        .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true })
+        .png({ compressionLevel: 9 })
+        .toBuffer();
+      contentType = "image/png";
+    } else {
+      sanitized = await pipeline
+        .resize({ width: 2000, height: 1200, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 82, mozjpeg: true })
+        .toBuffer();
+      contentType = "image/jpeg";
+    }
+  } catch {
+    return NextResponse.json({ ok: false, error: "That image could not be read. Try a different file." }, { status: 422 });
+  }
+
+  const column = kind === "logo" ? "logo_path" : "cover_path";
+  const current = await asAuthed(tenant.user, (tx) =>
+    tx.query<{ logo_path: string | null; cover_path: string | null }>(
+      "select logo_path, cover_path from restaurants where id = $1",
+      [tenant.restaurantId],
+    ),
+  );
+  const previousPath = current.rows[0]?.[column] ?? null;
+
+  const path = `${tenant.restaurantId}/${kind}/${kind}-${Date.now().toString(36)}.${extensionFor(contentType)}`;
 
   try {
-    await storage().put({ bucket: "branding", path, data: bytes, contentType: file.type, restaurantId: tenant.restaurantId });
-    await asAuthed(tenant.user, (tx) =>
-      tx.query(
-        `update restaurants set ${kind === "logo" ? "logo_path" : "cover_path"} = $2 where id = $1`,
-        [tenant.restaurantId, path],
-      ),
+    await replaceObject(
+      { bucket: "branding", path, data: sanitized, contentType, restaurantId: tenant.restaurantId },
+      previousPath,
+      async () => {
+        await asAuthed(tenant.user, (tx) =>
+          tx.query(`update restaurants set ${column} = $2 where id = $1`, [tenant.restaurantId, path]),
+        );
+      },
     );
     return NextResponse.json({ ok: true, path, url: storage().url("branding", path) });
   } catch (error) {

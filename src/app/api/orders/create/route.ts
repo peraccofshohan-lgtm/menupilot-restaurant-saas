@@ -67,6 +67,8 @@ export async function POST(request: Request) {
       ok: true,
       order: {
         orderNumber: result.order.order_number,
+        // Null on an idempotent replay: the raw token is issued once, to the device
+        // that placed the order. The client renders "already placed" without a link.
         trackingToken: result.order.tracking_token,
         status: result.order.status,
         total: result.order.total,

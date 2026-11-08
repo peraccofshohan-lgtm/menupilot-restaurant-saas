@@ -1,7 +1,7 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import type { Database } from "@/lib/db/types";
+import type { Database, Queryable } from "@/lib/db/types";
 import { hashPassword } from "@/lib/auth/password";
 import { storage } from "@/lib/services/storage";
 import { DEMO_MENU, DEMO_RESTAURANT, DEMO_TABLE_COUNT } from "./menu-data";
@@ -61,6 +61,47 @@ export async function isSeeded(db: Database): Promise<boolean> {
     "select count(*)::text as count from public.restaurants where is_demo = true",
   );
   return Number(res.rows[0]?.count ?? 0) > 0;
+}
+
+/**
+ * Creates (or repairs) a demo account.
+ *
+ * The identity row lives in `auth.users`; the scrypt hash lives in
+ * `public.user_credentials` so seeding behaves the same on a self-managed
+ * Postgres and on a Supabase project whose auth schema belongs to GoTrue.
+ */
+async function upsertDemoUser(
+  q: Queryable,
+  input: { email: string; passwordHash: string; fullName: string; phone?: string | null },
+): Promise<string> {
+  const existing = await q.query<{ id: string }>("select id from auth.users where lower(email) = lower($1)", [
+    input.email,
+  ]);
+  let userId = existing.rows[0]?.id;
+  if (!userId) {
+    const created = await q.query<{ id: string }>(
+      "insert into auth.users (email, email_confirmed_at) values ($1, now()) returning id",
+      [input.email],
+    );
+    userId = created.rows[0]!.id;
+  }
+
+  await q.query(
+    `insert into public.user_credentials (user_id, password_hash, full_name, phone)
+     values ($1, $2, $3, $4)
+     on conflict (user_id) do update
+       set password_hash = excluded.password_hash,
+           full_name = excluded.full_name,
+           phone = excluded.phone,
+           updated_at = now()`,
+    [userId, input.passwordHash, input.fullName, input.phone ?? null],
+  );
+  await q.query(
+    `insert into public.profiles (id, full_name, phone) values ($1, $2, $3)
+     on conflict (id) do update set full_name = excluded.full_name, phone = excluded.phone`,
+    [userId, input.fullName, input.phone ?? null],
+  );
+  return userId;
 }
 
 export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedResult> {
@@ -129,25 +170,12 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
     `Mati-${randomBytes(6).toString("base64url")}${Math.floor(rand() * 90 + 10)}`;
   const ownerPasswordHash = await hashPassword(generatedPassword);
 
-  const owner = await q.query<{ id: string }>(
-    `insert into auth.users (email, encrypted_password, full_name, phone, email_confirmed_at)
-     values ($1, $2, $3, $4, now())
-     on conflict do nothing
-     returning id`,
-    [ownerEmail, ownerPasswordHash, "MATI Kitchen Owner", "+8801700000000"],
-  );
-  let ownerId = owner.rows[0]?.id;
-  if (!ownerId) {
-    const found = await db.query<{ id: string }>("select id from auth.users where lower(email) = $1", [
-      ownerEmail,
-    ]);
-    ownerId = found.rows[0]?.id;
-    await q.query("update auth.users set encrypted_password = $2 where id = $1", [ownerId, ownerPasswordHash]);
-  }
-  await q.query(
-    "insert into public.profiles (id, full_name) values ($1, $2) on conflict (id) do nothing",
-    [ownerId, "MATI Kitchen Owner"],
-  );
+  const ownerId = await upsertDemoUser(q, {
+    email: ownerEmail,
+    passwordHash: ownerPasswordHash,
+    fullName: "MATI Kitchen Owner",
+    phone: "+8801700000000",
+  });
 
   // ---- Restaurant ---------------------------------------------------------
   const rest = await q.query<{ id: string }>(
@@ -505,38 +533,25 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
   // Scoped to this installation only, never to a restaurant, and its password is
   // generated at seed time exactly like the demo owner's.
   const adminEmail = process.env.PLATFORM_ADMIN_EMAIL || "admin@menupilot.demo";
-  const adminUser = await q.query<{ id: string }>(
-    `insert into auth.users (email, encrypted_password, full_name, email_confirmed_at)
-     values ($1, $2, 'Platform Operator', now())
-     on conflict do nothing returning id`,
-    [adminEmail, ownerPasswordHash],
-  );
-  let adminId = adminUser.rows[0]?.id;
-  if (!adminId) {
-    const found = await q.query<{ id: string }>("select id from auth.users where lower(email) = $1", [adminEmail]);
-    adminId = found.rows[0]?.id;
-    await q.query("update auth.users set encrypted_password = $2 where id = $1", [adminId, ownerPasswordHash]);
-  }
-  if (adminId) {
-    await q.query("insert into public.profiles (id, full_name) values ($1,'Platform Operator') on conflict do nothing", [adminId]);
-    await q.query("insert into public.platform_admins (user_id) values ($1) on conflict do nothing", [adminId]);
-  }
+  const adminId = await upsertDemoUser(q, {
+    email: adminEmail,
+    passwordHash: ownerPasswordHash,
+    fullName: "Platform Operator",
+  });
+  await q.query("insert into public.platform_admins (user_id) values ($1) on conflict do nothing", [adminId]);
 
   // ---- A kitchen staff + manager account so role demoing is possible ------
   const kitchenEmail = process.env.DEMO_KITCHEN_EMAIL || "kitchen@mati.demo";
   const kitchenPassword = process.env.DEMO_KITCHEN_PASSWORD || generatedPassword;
   const kitchenHash = await hashPassword(kitchenPassword);
-  const kitchenUser = await q.query<{ id: string }>(
-    `insert into auth.users (email, encrypted_password, full_name, email_confirmed_at)
-     values ($1, $2, 'Rakib (Kitchen)', now()) returning id`,
-    [kitchenEmail, kitchenHash],
-  );
-  await q.query("insert into public.profiles (id, full_name) values ($1, 'Rakib (Kitchen)') on conflict do nothing", [
-    kitchenUser.rows[0]!.id,
-  ]);
+  const kitchenId = await upsertDemoUser(q, {
+    email: kitchenEmail,
+    passwordHash: kitchenHash,
+    fullName: "Rakib (Kitchen)",
+  });
   await q.query(
     "insert into public.restaurant_members (restaurant_id, user_id, role) values ($1, $2, 'kitchen')",
-    [restaurantId, kitchenUser.rows[0]!.id],
+    [restaurantId, kitchenId],
   );
 
   return {

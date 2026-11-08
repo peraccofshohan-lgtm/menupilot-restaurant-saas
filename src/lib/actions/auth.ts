@@ -9,6 +9,8 @@ import { AuthError, SESSION_COOKIE, signIn, signUp, getSessionUser } from "@/lib
 import { checkPasswordPolicy, hashPassword } from "@/lib/auth/password";
 import { Validator } from "@/lib/validation";
 import { formToObject, type ActionState } from "./types";
+import { emailDeliveryConfigured, passwordResetEmail, sendEmail } from "@/lib/services/email";
+import { serverEnv } from "@/lib/env";
 
 /**
  * Authentication server actions.
@@ -181,14 +183,20 @@ export async function requestPasswordResetAction(_prev: ActionState, formData: F
        values ($1, $2, now() + interval '60 minutes')`,
       [row.id, tokenHash],
     );
-    if (process.env.NODE_ENV !== "production") {
-      // Development convenience only: the link is logged locally for the operator.
-      console.info(`[auth] password reset link (dev): /reset-password?token=${token}`);
-    }
+    // The link is emailed and the attempt is recorded. The response below is
+    // deliberately identical whether or not the account exists, so addresses
+    // cannot be probed; `deliveryConfigured` only describes the installation.
+    const template = passwordResetEmail({
+      resetUrl: `${serverEnv.appUrl}/reset-password?token=${encodeURIComponent(token)}`,
+      minutes: 60,
+    });
+    await sendEmail({ ...template, to: email, kind: "password_reset" });
   }
   return {
     status: "success",
-    message: "If an account exists for that address, a reset link has been sent.",
+    message: emailDeliveryConfigured()
+      ? "If an account exists for that address, a reset link has been sent."
+      : "If an account exists for that address, a reset link has been created. Email delivery is not configured on this installation, so contact your administrator for the link.",
   };
 }
 
@@ -221,7 +229,13 @@ export async function resetPasswordAction(_prev: ActionState, formData: FormData
     return { status: "error", message: "This reset link has expired or was already used. Request a new one." };
   }
   const passwordHash = await hashPassword(password);
-  await db.query("update auth.users set encrypted_password = $2 where id = $1", [row.user_id, passwordHash]);
-  await db.query("delete from auth.sessions where user_id = $1", [row.user_id]);
+  await db.query(
+    `insert into public.user_credentials (user_id, password_hash)
+     values ($1, $2)
+     on conflict (user_id) do update set password_hash = excluded.password_hash, updated_at = now()`,
+    [row.user_id, passwordHash],
+  );
+  // Any other device signed in as this user is signed out by the reset.
+  await db.query("delete from public.app_sessions where user_id = $1", [row.user_id]);
   return { status: "success", message: "Your password has been changed. You can sign in now." };
 }

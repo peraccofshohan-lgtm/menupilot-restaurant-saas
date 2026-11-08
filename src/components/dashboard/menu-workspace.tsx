@@ -1,5 +1,6 @@
 "use client";
 
+import { mediaUrl } from "@/lib/media";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -265,7 +266,7 @@ export function MenuWorkspace({
                       {item.image_path ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={`/api/media/menu/${item.image_path}`}
+                          src={mediaUrl("menu", item.image_path)!}
                           alt={item.name}
                           className="size-full object-cover"
                           loading="lazy"
@@ -485,7 +486,7 @@ function ItemEditor({
 }) {
   const { state, pending, submit } = useActionStateCompat();
   const [imagePath, setImagePath] = React.useState(item?.image_path ?? "");
-  const [imageUrl, setImageUrl] = React.useState(item?.image_path ? `/api/media/menu/${item.image_path}` : "");
+  const [imageUrl, setImageUrl] = React.useState(mediaUrl("menu", item?.image_path) ?? "");
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);

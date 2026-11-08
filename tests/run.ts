@@ -90,7 +90,7 @@ describe("authentication", () => {
   it("rejects a session token that is not in the database", async () => {
     const database = await db();
     const res = await database.query(
-      "select 1 from auth.sessions s where s.token_hash = $1 and s.expires_at > now()",
+      "select 1 from public.app_sessions s where s.token_hash = $1 and s.expires_at > now()",
       ["not-a-real-hash"],
     );
     assertEquals(res.rows.length, 0, "unknown token resolves to no session");
@@ -100,11 +100,11 @@ describe("authentication", () => {
     const database = await db();
     const fixture = await getFixture();
     await database.query(
-      "insert into auth.sessions (user_id, token_hash, expires_at) values ($1,'expired-hash', now() - interval '1 hour')",
+      "insert into public.app_sessions (user_id, token_hash, expires_at) values ($1,'expired-hash', now() - interval '1 hour')",
       [fixture.ownerId],
     );
     const res = await database.query(
-      "select 1 from auth.sessions where token_hash = 'expired-hash' and expires_at > now()",
+      "select 1 from public.app_sessions where token_hash = 'expired-hash' and expires_at > now()",
     );
     assertEquals(res.rows.length, 0, "expired session is not usable");
   });
@@ -1057,6 +1057,23 @@ async function main() {
     }
     if (suiteIndex < suiteStack.length - 1) console.log("");
   }
+
+  // Security audit suite (tests/security.test.ts). It shares this process and the
+  // same database, so "the product suite passed" and "the audit passed" describe
+  // the exact same build.
+  console.log("  security audit");
+  const { runSecuritySuite } = await import("./security.test");
+  const audit = await runSecuritySuite({
+    onResult(name, ok, ms, error) {
+      results.push({ suite: "security audit", name, ok, ms, ...(error ? { error } : {}) });
+      if (ok) console.log(`    \x1b[32m✓\x1b[0m ${name} \x1b[90m(${ms}ms)\x1b[0m`);
+      else {
+        console.log(`    \x1b[31m✗\x1b[0m ${name}`);
+        console.log(`      \x1b[31m${error}\x1b[0m`);
+      }
+    },
+  });
+  console.log(`\n  security audit: ${audit.passed} passed, ${audit.failed} failed`);
 
   await teardown();
 

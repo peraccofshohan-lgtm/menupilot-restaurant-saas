@@ -66,22 +66,31 @@ export async function signUp(input: {
   }
 
   const passwordHash = await hashPassword(input.password);
-  const created = await db.query<{ id: string; email: string; full_name: string | null; phone: string | null }>(
-    `insert into auth.users (email, encrypted_password, full_name, phone, email_confirmed_at)
-     values ($1, $2, $3, $4, now())
-     returning id, email, full_name, phone`,
-    [email, passwordHash, input.fullName.trim(), input.phone?.trim() || null],
+  const fullName = input.fullName.trim();
+  const phone = input.phone?.trim() || null;
+
+  // `auth.users` is the identity anchor (GoTrue owns it on Supabase); the hash
+  // lives in `user_credentials` so this works identically on both engines.
+  const created = await db.query<{ id: string; email: string }>(
+    `insert into auth.users (email, email_confirmed_at)
+     values ($1, now())
+     returning id, email`,
+    [email],
   );
   const row = created.rows[0];
   if (!row) throw new AuthError("Could not create the account.", "CREATE_FAILED");
 
+  await db.query(
+    "insert into public.user_credentials (user_id, password_hash, full_name, phone) values ($1, $2, $3, $4)",
+    [row.id, passwordHash, fullName, phone],
+  );
   await db.query("insert into public.profiles (id, full_name, phone) values ($1, $2, $3)", [
     row.id,
-    row.full_name,
-    row.phone,
+    fullName,
+    phone,
   ]);
 
-  return createSession({ id: row.id, email: row.email, fullName: row.full_name, phone: row.phone });
+  return createSession({ id: row.id, email: row.email, fullName, phone });
 }
 
 export async function signIn(email: string, password: string): Promise<AuthResult> {
@@ -91,14 +100,18 @@ export async function signIn(email: string, password: string): Promise<AuthResul
     email: string;
     full_name: string | null;
     phone: string | null;
-    encrypted_password: string;
-  }>("select id, email, full_name, phone, encrypted_password from auth.users where lower(email) = $1", [
-    normalizeEmail(email),
-  ]);
+    password_hash: string | null;
+  }>(
+    `select u.id, u.email, c.full_name, c.phone, c.password_hash
+       from auth.users u
+       left join public.user_credentials c on c.user_id = u.id
+      where lower(u.email) = $1`,
+    [normalizeEmail(email)],
+  );
 
   const row = res.rows[0];
   // Always run the KDF so timing does not reveal whether the email exists.
-  const stored = row?.encrypted_password ?? "scrypt$00$00";
+  const stored = row?.password_hash ?? "scrypt$00$00";
   const valid = await verifyPassword(password, stored);
   if (!row || !valid) {
     throw new AuthError("Email or password is incorrect.", "INVALID_CREDENTIALS");
@@ -113,7 +126,7 @@ async function createSession(user: AppUser): Promise<AuthResult> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
   await db.query(
-    `insert into auth.sessions (user_id, token_hash, expires_at) values ($1, $2, $3)`,
+    `insert into public.app_sessions (user_id, token_hash, expires_at) values ($1, $2, $3)`,
     [user.id, sha256(token), expiresAt],
   );
   return { user, token, expiresAt };
@@ -124,14 +137,14 @@ export async function getSessionUser(token: string | undefined): Promise<AppUser
   const db = await getDb();
   const res = await db.query<{ id: string; email: string; full_name: string | null; phone: string | null }>(
     `select u.id, u.email, u.full_name, u.phone
-       from auth.sessions s
+       from public.app_sessions s
        join auth.users u on u.id = s.user_id
       where s.token_hash = $1 and s.expires_at > now()`,
     [sha256(token)],
   );
   const row = res.rows[0];
   if (!row) return null;
-  void db.query("update auth.sessions set last_used_at = now() where token_hash = $1", [sha256(token)]).catch(
+  void db.query("update public.app_sessions set last_used_at = now() where token_hash = $1", [sha256(token)]).catch(
     () => undefined,
   );
   return { id: row.id, email: row.email, fullName: row.full_name, phone: row.phone };
@@ -140,7 +153,7 @@ export async function getSessionUser(token: string | undefined): Promise<AppUser
 export async function destroySession(token: string | undefined): Promise<void> {
   if (!token) return;
   const db = await getDb();
-  await db.query("delete from auth.sessions where token_hash = $1", [sha256(token)]);
+  await db.query("delete from public.app_sessions where token_hash = $1", [sha256(token)]);
 }
 
 export function setSessionCookie(response: NextResponse, token: string, expiresAt: Date): void {

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Shield, UserMinus, UserPlus } from "lucide-react";
+import { Mail, Shield, UserMinus, UserPlus, Link2 } from "lucide-react";
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Select, cx } from "@/components/ui";
 import type { PendingInvitation, StaffMember } from "@/lib/services/staff";
 import { inviteStaffAction, removeMemberAction, revokeInvitationAction, updateMemberRoleAction } from "@/lib/actions/tenant";
@@ -27,9 +27,13 @@ export function StaffManager({
 }) {
   const router = useRouter();
   const [pending, setPending] = React.useState<string | null>(null);
-  const [inviteState, setInviteState] = React.useState<{ status: string; message?: string; errors?: Record<string, string> }>({
-    status: "idle",
-  });
+  const [inviteState, setInviteState] = React.useState<{
+    status: string;
+    message?: string;
+    errors?: Record<string, string>;
+    inviteUrl?: string;
+  }>({ status: "idle" });
+  const [copied, setCopied] = React.useState(false);
   const [inviting, setInviting] = React.useState(false);
 
   async function invite(event: React.FormEvent<HTMLFormElement>) {
@@ -148,6 +152,20 @@ export function StaffManager({
                   role={inviteState.status === "error" ? "alert" : "status"}
                 >
                   {inviteState.message}
+                  {inviteState.inviteUrl ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(inviteState.inviteUrl!);
+                        setCopied(true);
+                        window.setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="mt-1.5 inline-flex items-center gap-1 font-medium underline decoration-dotted underline-offset-2"
+                    >
+                      <Link2 className="size-3" aria-hidden />
+                      {copied ? "Link copied" : "Copy invite link"}
+                    </button>
+                  ) : null}
                 </p>
               ) : null}
               <Button type="submit" size="sm" loading={inviting}>

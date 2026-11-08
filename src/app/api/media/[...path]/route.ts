@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
+import { mediaUrl } from "@/lib/media";
 import { storage, type Bucket } from "@/lib/services/storage";
 
 /**
  * Serves stored media.
  *
  * Menu artwork and branding are public by design (they appear on the guest menu),
- * so this route is cacheable and unauthenticated. Everything else in storage lives
- * in buckets that are only ever read by authorized server code.
+ * so this route is cacheable and unauthenticated.
+ *
+ * With the Supabase driver the bytes live in a public Storage bucket, so we answer
+ * with a permanent redirect to the CDN object. That keeps every URL previously
+ * printed, cached or embedded resolving — including QR sheets and emails — while
+ * the service_role key stays server-side.
  */
 const PUBLIC_BUCKETS: Bucket[] = ["menu", "branding"];
 
@@ -26,8 +31,15 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
+  const service = storage();
+  if (service.driver === "supabase") {
+    const cdn = mediaUrl(bucket, objectPath);
+    if (!cdn) return new NextResponse("Not found", { status: 404 });
+    return NextResponse.redirect(cdn, 308);
+  }
+
   try {
-    const object = await storage().get(bucket, objectPath);
+    const object = await service.get(bucket, objectPath);
     if (!object) return new NextResponse("Not found", { status: 404 });
     return new NextResponse(new Uint8Array(object.data), {
       headers: {

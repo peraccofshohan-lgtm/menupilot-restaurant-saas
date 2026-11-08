@@ -12,7 +12,12 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:seed": "tsx scripts/db-seed.ts",
-    "db:reset": "tsx scripts/db-reset.ts"
+    "db:reset": "tsx scripts/db-reset.ts",
+    "db:status": "tsx scripts/supabase-setup.ts --check",
+    "storage:setup": "tsx scripts/supabase-setup.ts",
+    "storage:gc": "tsx scripts/storage-gc.ts",
+    "test:security": "tsx tests/security-run.ts",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "repository": {
     "type": "git",

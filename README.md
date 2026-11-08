@@ -35,7 +35,9 @@ PostgreSQL (Supabase-compatible migrations + RLS) · Lucide icons
 | Multi-tenant RLS + composite foreign keys | Done, tested |
 | Idempotent order submission, per-device rate limiting | Done |
 | Demo tenant **MATI Kitchen**: 50 dishes, 20 QR tables, 4 weeks of orders | Done |
-| Automated test suite (70 integration/security tests) | Done |
+| Automated test suite (100 tests: 70 product + 30 security audit) | Done |
+| Supabase-ready: GoTrue-compatible identity tables, Storage driver, Realtime, email | Done (see status note) |
+| Deployment tooling: schema check, bucket setup, health probe, storage GC | Done |
 
 ### Deliberately not implemented
 
@@ -44,11 +46,12 @@ These are **not** in the product and the UI does not pretend otherwise:
 - **Online payments.** Guests pay at the counter, as stated on the cart and the tracking page.
 - **Food variants and add-ons.** Dishes have a single price and an optional per-line note. There is no variant
   editor, so none is shown.
-- **Email/SMS delivery.** Staff invitations and password-reset links are recorded server-side; wiring a mail
-  provider is a deployment step (see `DEPLOYMENT.md`). In local development the link is written to the server log.
+- **Email delivery without a provider.** The integration is complete (Resend over HTTPS, `email_outbox` audit
+  trail, honest UI copy) but ships unconfigured. Without `RESEND_API_KEY` the app says
+  "email delivery is not configured" and offers **Copy invite link**; it never claims a message was sent.
 - **Billing/subscriptions.** The pricing page is marketing copy; no plan limits are enforced in the database.
-- **Realtime over websockets.** Live screens poll an authenticated endpoint (6–15 s). This is intentional: it
-  works on every host including serverless, survives sleep/wake, and cannot leak another tenant's data.
+- **Realtime without a Supabase project.** The tenant-scoped token endpoint, claim-verified channel policy and
+  client are implemented, and live screens fall back to polling (6–45 s) whenever realtime is unavailable.
 
 ---
 
@@ -93,6 +96,10 @@ Guest flows to try:
 | `npm run db:seed` | Create the demo tenant (idempotent) |
 | `npm run db:seed -- --reset` | Rebuild the demo tenant from scratch |
 | `npm run db:reset` | Delete the embedded database directory |
+| `npm run test:security` | Security audit suite only (pre-deploy gate) |
+| `npm run storage:setup` | Create Supabase buckets and verify schema (needs credentials) |
+| `npm run db:status` | Verify a Supabase project without changing it |
+| `npm run storage:gc` | Report (or `--delete`) unreferenced media objects |
 
 ---
 
@@ -114,14 +121,23 @@ Browser ──► Next.js App Router (server components + server actions + route
 
 Full detail: [`ARCHITECTURE.md`](./ARCHITECTURE.md) · schema: [`DATABASE.md`](./DATABASE.md) ·
 security model: [`SECURITY.md`](./SECURITY.md) · setup: [`SETUP.md`](./SETUP.md) ·
-deployment: [`DEPLOYMENT.md`](./DEPLOYMENT.md).
+deployment: [`SUPABASE.md`](./SUPABASE.md) (Supabase + Vercel runbook) and [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 ---
 
 ## A note on the database in this build
 
-The production target is **Supabase** (PostgreSQL + Auth + Storage). This sandbox has **no network route to
-`supabase.co`** and no Supabase project credentials, so the code is written to the Supabase contract and runs
-here on **embedded PostgreSQL 18** (PGlite) — a real PostgreSQL engine, with the same migrations, the same RLS
-policies and the same functions. Switching to Supabase is a matter of environment variables; see
-`DEPLOYMENT.md`. Nothing about tenant isolation or the order workflow is simulated.
+The production target is **Supabase** (PostgreSQL + Storage + Realtime). This sandbox has **no Supabase
+credentials** and filters TLS to `supabase.co`, so the suite runs on **embedded PostgreSQL 18** (PGlite) — a real
+PostgreSQL engine with the same migrations, the same RLS policies and the same functions.
+
+What that means precisely:
+
+- **Tested here:** all 11 migrations from scratch, every RLS policy, the order workflow, storage validation and
+  replacement, session handling, and the isolation guarantees — 100 tests.
+- **Written to the Supabase contract but not executed against a live project:** GoTrue-managed `auth` schema
+  compatibility, Storage bucket policies, Realtime subscriptions, and email delivery.
+- **Not claimed:** that Supabase is connected. It is not.
+
+`SUPABASE.md` lists exactly which rows need a live project, and the command that closes them
+(`DATABASE_URL=… npm run test:security`). Nothing about tenant isolation or the order workflow is simulated.

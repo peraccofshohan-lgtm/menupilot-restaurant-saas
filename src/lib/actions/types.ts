@@ -5,6 +5,8 @@ export interface ActionState {
   errors?: Record<string, string>;
   redirectTo?: string;
   data?: Record<string, unknown>;
+  /** Link the user can copy when email delivery is unavailable. */
+  inviteUrl?: string;
 }
 
 export const initialActionState: ActionState = { status: "idle" };

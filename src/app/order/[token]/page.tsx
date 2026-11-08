@@ -1,3 +1,4 @@
+import { mediaUrl } from "@/lib/media";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -36,7 +37,7 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
           <div className="flex min-w-0 items-center gap-2.5">
             {order.restaurant.logo_path ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={`/api/media/branding/${order.restaurant.logo_path}`} alt="" className="size-9 rounded-lg object-cover" />
+              <img src={mediaUrl("branding", order.restaurant.logo_path)!} alt="" className="size-9 rounded-lg object-cover" />
             ) : (
               <span className="grid size-9 place-items-center rounded-lg bg-clay-600 text-white"><ChefHat className="size-4" aria-hidden /></span>
             )}

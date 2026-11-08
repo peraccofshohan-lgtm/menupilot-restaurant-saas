@@ -7,6 +7,7 @@ import { Bell, Radio, RefreshCw } from "lucide-react";
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, OrderStatusBadge, cx } from "@/components/ui";
 import { formatMoney, timeAgo } from "@/lib/format";
 import type { OrderSummary } from "@/lib/services/orders";
+import { useRealtimePulse } from "./realtime-bridge";
 
 /**
  * Realtime incoming-order feed.
@@ -72,6 +73,11 @@ export function LiveOrders({
     }
   }, [restaurantId]);
 
+  // Realtime is an accelerator: when the socket is live the poll interval backs
+  // off to a slow safety net, and the socket itself triggers `load()` on change.
+  // When it is unavailable this returns "polling" and nothing changes.
+  const transport = useRealtimePulse(restaurantId, () => void load());
+
   React.useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -80,7 +86,8 @@ export function LiveOrders({
       if (cancelled) return;
       await load();
       if (!cancelled) {
-        const delay = document.visibilityState === "visible" ? 6000 : 20000;
+        const visible = document.visibilityState === "visible";
+        const delay = transport === "live" ? (visible ? 45000 : 60000) : visible ? 6000 : 20000;
         timer = setTimeout(tick, delay);
       }
     }
@@ -96,7 +103,7 @@ export function LiveOrders({
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [load]);
+  }, [load, transport]);
 
   async function decide(orderId: string, action: "accepted" | "rejected") {
     if (action === "rejected" && !window.confirm("Reject this order? The guest will be told the kitchen could not take it.")) {

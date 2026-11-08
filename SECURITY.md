@@ -48,6 +48,33 @@ otherwise, so the grant widens *reach within a tenant*, never *access across ten
 members can read their own team, a tenant owner is refused another tenant's directory, and a non-admin is
 refused the account directory.
 
+## Findings fixed during the production audit
+
+Two real defects were found by `tests/security.test.ts` and are fixed in migrations
+010 and 011. Both are documented here because a fix without a record is a fix that
+gets undone.
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 1 | **High** | The RLS policy on `orders` read `using (mp_is_member(restaurant_id) or mp_is_platform_admin())`. Any platform administrator could read every restaurant's orders, guest names and phone numbers — contradicting the stated design ("aggregate health only") | `010_platform_admin_scoping.sql` drops the bypass. Operators keep aggregate access through `security definer` functions, which is all the console needs |
+| 2 | **Medium** | `orders.tracking_token` — the only credential a guest holds — was stored in plaintext, so a database dump or leaked backup allowed following live orders | `011_tracking_token_hashing.sql` hashes on write via trigger and hashes the presented value on read. Legacy plaintext tokens are retired, not migrated |
+
+A third, subtler class of problem was also removed: the test harness talked to a
+different database than the services under test, so integration tests could pass for
+the wrong reason. `tests/harness.ts` now installs the test database as the
+application's shared handle, which immediately surfaced the two findings above.
+
+## Guest tracking tokens
+
+`/order/<token>` is reachable without an account, so the token *is* the credential:
+
+- 256 bits of randomness (`mp_random_hex(32)`), returned to the guest once
+- stored only as SHA-256; the row cannot be used as a link
+- resolved by `get_order_tracking()`, a `SECURITY DEFINER` function that matches the
+  digest, returns only status/timeline/line items, and never exposes another order
+- holds no tenant-internal identifiers in its payload — no `restaurant_id`, no
+  `table_id`, no staff names
+
 ## Authentication
 
 - Passwords hashed with **scrypt** (Node core), 16-byte random salt, 64-byte derived key, constant-time compare.

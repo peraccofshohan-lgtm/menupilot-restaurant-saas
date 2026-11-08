@@ -13,6 +13,11 @@ by composite foreign keys — so a cross-tenant reference is impossible at the s
 | `004_ops.sql` | Password-reset tokens and the rate-limit bucket |
 | `005_tenant_integrity.sql` | Composite tenant foreign keys, last-owner guard, immutable order money |
 | `006_identity_functions.sql` | Checked `security definer` reads for the auth schema: staff directory, account directory, platform tenant list |
+| `007_supabase_compat.sql` | `user_credentials` + `app_sessions` (GoTrue-compatible identity), nullable `encrypted_password` parity, data carry-over |
+| `008_provisioning_checks.sql` | `mp_check_schema()` — verifies the live catalog matches what the app needs |
+| `009_email_outbox.sql` | Every email attempt with its real outcome (`sent` / `failed` / `skipped`) |
+| `010_platform_admin_scoping.sql` | **Security fix**: removes platform-admin row-level bypass from RLS |
+| `011_tracking_token_hashing.sql` | Hashes guest tracking tokens at rest; adds `orders.status_changed_at` |
 
 Applied in filename order inside one transaction each, recorded in `schema_migrations`. Safe to re-run.
 
@@ -20,8 +25,9 @@ Applied in filename order inside one transaction each, recorded in `schema_migra
 
 ```
 auth.users 1──1 profiles
+auth.users 1──1 user_credentials          (scrypt hash; separate from GoTrue's auth.users)
 auth.users 1──* restaurant_members *──1 restaurants
-auth.users 1──* auth.sessions
+auth.users 1──* app_sessions              (opaque token hashes)
 auth.users 1──* platform_admins
 auth.users 1──* password_reset_tokens
 
@@ -33,9 +39,30 @@ restaurants 1──* orders 1──* order_items
                      orders 1──* order_status_history
 restaurants 1──* staff_invitations
 restaurants 1──* audit_logs
-restaurants 1──* storage_objects (bucket + path, unique)
+restaurants 1──* storage_objects (bucket + path, unique; local driver only)
+restaurants 1──* email_outbox
 orders    1──1 (restaurant, idempotency_key) unique  ──► duplicate submissions collapse
 ```
+
+## Identity tables (Supabase compatibility)
+
+On a Supabase project GoTrue owns the `auth` schema, so the application never stores
+its own columns there. Two `public` tables hold what MenuPilot needs, keyed by the
+same uuid as `auth.users`:
+
+| Table | Holds | Access |
+|---|---|---|
+| `user_credentials` | scrypt password hash, display name, phone | RLS on, no policies, `revoke all` from browser roles |
+| `app_sessions` | HMAC-SHA256 of the session cookie, expiry | same |
+
+`auth.users` remains the identity anchor and the target of every foreign key, so
+`profiles`, `restaurant_members` and `platform_admins` are unchanged. This is what
+makes the same migration set work on a self-managed Postgres and on Supabase without
+a conditional schema per engine.
+
+Two values are never stored in plaintext: the session cookie (`app_sessions.token_hash`),
+the guest tracking token (`orders.tracking_token`, SHA-256), QR tokens
+(`qr_tokens.token_sha256`) and reset/invitation tokens.
 
 ## Table reference
 

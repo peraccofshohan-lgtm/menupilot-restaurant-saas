@@ -194,7 +194,7 @@ begin
       return jsonb_build_object(
         'order_id', v_existing.id,
         'order_number', v_existing.order_number,
-        'tracking_token', v_existing.tracking_token,
+        'tracking_token', null, -- the raw token was returned once; see 011_tracking_token_hashing.sql
         'status', v_existing.status,
         'subtotal', v_existing.subtotal,
         'tax_amount', v_existing.tax_amount,

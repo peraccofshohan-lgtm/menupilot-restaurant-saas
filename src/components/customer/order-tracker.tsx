@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useOrderRealtimePulse } from "@/components/dashboard/realtime-bridge";
 
 /**
  * Keeps the status badge honest without a websocket: refresh the server component
@@ -17,6 +18,10 @@ export function OrderTracker({ token, initialStatus }: { token: string; initialS
 
   const closed = ["served", "rejected", "cancelled"].includes(status);
 
+  // A guest who keeps the page open gets near-instant status changes when the
+  // project supports realtime; otherwise the 10s refresh below is the guarantee.
+  const transport = useOrderRealtimePulse(closed ? null : token, () => router.refresh());
+
   React.useEffect(() => {
     if (closed) return;
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -24,7 +29,7 @@ export function OrderTracker({ token, initialStatus }: { token: string; initialS
       if (timer) return;
       timer = setInterval(() => {
         if (document.visibilityState === "visible") router.refresh();
-      }, 10000);
+      }, transport === "live" ? 45000 : 10000);
     };
     const onVisibility = () => {
       if (document.visibilityState === "visible") router.refresh();
@@ -35,7 +40,7 @@ export function OrderTracker({ token, initialStatus }: { token: string; initialS
       if (timer) clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [closed, router, token]);
+  }, [closed, router, token, transport]);
 
   return null;
 }

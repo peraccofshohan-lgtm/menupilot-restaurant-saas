@@ -89,23 +89,67 @@ GUCs while remaining compatible with them.
 
 ## Live data
 
-| Screen | Mechanism | Interval |
-|---|---|---|
-| Overview "Incoming orders" | `GET /api/orders/feed` (pending) | 6 s visible / 20 s hidden |
-| Orders list | `router.refresh()` via `AutoRefresh` | 15 s |
-| Kitchen display | `GET /api/kitchen/feed` | 7 s visible / 25 s hidden |
-| Guest tracking | `router.refresh()` | 10 s, stops once closed |
+Polling is the correctness guarantee; realtime (when a Supabase project provides it) is an accelerator.
 
-Polling was chosen over websockets deliberately: it works on serverless hosts, recovers from sleep and network
-drops without reconnection logic, and every request is re-authorized. Each feed derives the restaurant from the
-session, never from the query string.
+| Screen | Fallback (always on) | With realtime |
+|---|---|---|
+| Overview "Incoming orders" | `GET /api/orders/feed`, 6 s visible / 20 s hidden | socket pushes → 45 s / 60 s |
+| Orders list | `router.refresh()` via `AutoRefresh`, 15 s | unchanged |
+| Kitchen display | `GET /api/kitchen/feed`, 7 s visible / 25 s hidden | socket pushes → 30 s / 60 s |
+| Guest tracking | `router.refresh()`, 10 s, stops once closed | socket pushes → 45 s |
+
+```
+Browser ──► GET /api/realtime/token ──► short-lived JWT, mp_topic from the session
+                ▼
+        private channel restaurant:<id> ── change signal ──► re-read the authorized feed
+```
+
+Three properties make the socket safe:
+
+1. **The server chooses the topic.** The client receives `restaurant:<id>`; it cannot
+   ask for another tenant's channel. The `realtime.messages` policy compares the
+   requested topic with the signed `mp_topic` claim and refuses anything else.
+2. **The channel carries no rows.** It is a "something changed" ping; the data still
+   comes from a route that re-derives tenancy from the session on every request.
+3. **Failure is silent.** No project, no secret, a refused subscription or a dead
+   socket all fall back to the poller. Nothing in the UI depends on the socket.
+
+Guest tracking uses the same mechanism with a narrower topic, `order:<hmac of the
+tracking token>`, so a guest watches exactly one ticket.
+
+Polling was kept rather than replaced because it works on every host, recovers from
+sleep and network drops without reconnection logic, and every request is re-authorized.
 
 ## Storage
 
-`StorageService` has two drivers — `local` (objects in PostgreSQL, streamed through `/api/media/...`) and
-`supabase` (Supabase Storage bucket, service-role upload from server code only). Paths are namespaced
-`<restaurant_id>/<kind>/<file>`; the restaurant id comes from the session, never from the form. Uploads are
-type-checked by MIME **and** magic bytes, and capped at 5 MB.
+`StorageService` (`src/lib/services/storage.ts`) exposes one interface with two
+drivers and an identical path layout:
+
+```
+<restaurantId>/menu/<slug>-<stamp>.jpg
+<restaurantId>/logo/logo-<stamp>.png
+<restaurantId>/cover/cover-<stamp>.jpg
+```
+
+| Driver | Where bytes live | How the browser gets them |
+|---|---|---|
+| `local` | Postgres table `storage_objects` | `/api/media/<bucket>/<path>`, streamed by a route |
+| `supabase` | Storage buckets `menu` / `branding` | public CDN URL; `/api/media/...` 308-redirects there |
+
+The first path segment is always the tenant id and always comes from the session,
+never from the request — so a bucket policy can pin writes to the caller's own folder,
+and a mistyped path cannot reach another restaurant's media.
+
+Uploads pass four gates before a byte is stored: declared MIME + size, file
+signature, a `sharp` decode-and-re-encode (which also strips EXIF), and a path built
+from the session tenant. `replaceObject()` writes the new object, commits the row,
+then deletes the old one, so a swap never leaves a broken image; if the commit fails
+the new object is removed instead. `npm run storage:gc` reports objects nothing
+references — the only way orphans accumulate is a dish form abandoned after picking a
+photo.
+
+Image URLs resolve through one isomorphic helper (`src/lib/media.ts`), so both
+drivers render identically in server and client components.
 
 ## Failure behaviour
 
@@ -118,12 +162,22 @@ type-checked by MIME **and** magic bytes, and capped at 5 MB.
 | Dish sold out mid-cart | Server rejects with a friendly message; cart highlights the item |
 | Duplicate submit | Idempotency key returns the original order instead of creating a second |
 | Upload rejected | Specific reason (type, size, corrupt file) shown next to the field |
+| Realtime unavailable | Silent fallback to polling; no error shown, no data faked |
+| Email provider not configured | Invitation created with a copyable link; the message says nothing was sent |
+| Supabase misconfigured | `/api/health` returns 503 with the failing check named |
 | Invalid state transition | Rejected with a human sentence (`"An order that is pending cannot move to ready."`) |
 
 ## Testing strategy
 
-`npm test` starts a fresh embedded PostgreSQL, applies every migration from scratch and runs 70 tests across
-authentication, tenancy, QR access, ordering, lifecycle, metrics, menu CRUD, staff/settings, platform access, user-facing error copy and abuse protection. RLS is tested by running the same SQL as different identities and asserting what each one may
+`npm test` starts a fresh embedded PostgreSQL, applies every migration from scratch and runs **100 tests**:
+70 product tests plus a 30-test production audit (`tests/security.test.ts`) covering cross-tenant access,
+unauthorized staff actions, QR validation, duplicate submission, price integrity, state-machine abuse, upload
+security, platform permissions, secret exposure and session handling.
+
+The harness installs its database as the application's shared handle, so service code
+(`signIn`, `getSessionUser`, storage) runs against the same database the assertions
+query. Before that, those integration tests could pass while exercising a different
+database — a false pass that hid two real defects. RLS is tested by running the same SQL as different identities and asserting what each one may
 see — the database is the subject of the test, not a mock.
 
 ## Decisions worth knowing

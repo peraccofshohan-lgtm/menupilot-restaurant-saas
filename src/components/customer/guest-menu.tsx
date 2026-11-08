@@ -1,5 +1,6 @@
 "use client";
 
+import { mediaUrl } from "@/lib/media";
 import * as React from "react";
 import Link from "next/link";
 import {
@@ -78,7 +79,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
       <div className="relative h-44 w-full overflow-hidden bg-ink-800 sm:h-56">
         {menu.restaurant.cover_path ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={`/api/media/branding/${menu.restaurant.cover_path}`} alt="" className="size-full object-cover" />
+          <img src={mediaUrl("branding", menu.restaurant.cover_path)!} alt="" className="size-full object-cover" />
         ) : (
           <div className="size-full bg-ink-800" />
         )}
@@ -87,7 +88,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
           {menu.restaurant.logo_path ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={`/api/media/branding/${menu.restaurant.logo_path}`}
+              src={mediaUrl("branding", menu.restaurant.logo_path)!}
               alt={`${menu.restaurant.name} logo`}
               className="size-14 shrink-0 rounded-xl border border-white/20 object-cover shadow-sm"
             />
@@ -398,7 +399,7 @@ function MenuImage({ path, alt, className }: { path: string | null; alt: string;
     <div className={cx("overflow-hidden rounded-lg bg-ink-100", className)}>
       {path ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/media/menu/${path}`} alt={alt} loading="lazy" className="size-full object-cover" />
+        <img src={mediaUrl("menu", path)!} alt={alt} loading="lazy" className="size-full object-cover" />
       ) : (
         <div className="grid size-full place-items-center text-ink-300">
           <ChefHat className="size-5" aria-hidden />

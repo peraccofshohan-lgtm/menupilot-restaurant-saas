@@ -6,6 +6,8 @@ import { getDb } from "@/lib/db";
 import { asAuthed, getCurrentUser, RESTAURANT_COOKIE } from "@/lib/auth/server";
 import { makeSlug, Validator, isUuid } from "@/lib/validation";
 import { formToObject, type ActionState } from "./types";
+import { sendEmail, staffInvitationEmail } from "@/lib/services/email";
+import { serverEnv } from "@/lib/env";
 
 /* ==========================================================================
    Tenant lifecycle: onboarding, settings, tables, QR codes, staff.
@@ -416,12 +418,40 @@ export async function inviteStaffAction(_prev: ActionState, formData: FormData):
       );
     }
 
-    if (process.env.NODE_ENV !== "production") {
-      console.info(`[staff] invite link (dev): /register?invite=${token}`);
+    // Email is attempted and the *real* outcome is reported. If no provider is
+    // configured the invitation still works — the owner can copy the link — but
+    // the message must not claim an email was delivered.
+    const restaurant = await db.query<{ name: string }>("select name from public.restaurants where id = $1", [
+      restaurantId,
+    ]);
+    const inviter = await db.query<{ full_name: string | null }>(
+      "select full_name from public.user_credentials where user_id = $1",
+      [guard.user.id],
+    );
+    const acceptUrl = `${serverEnv.appUrl}/register?invite=${encodeURIComponent(token)}`;
+    const template = staffInvitationEmail({
+      restaurantName: restaurant.rows[0]?.name ?? "your restaurant",
+      inviterName: inviter.rows[0]?.full_name || guard.user.email,
+      role,
+      acceptUrl,
+      expiresInDays: 7,
+    });
+    const sent = await sendEmail({ ...template, to: email, kind: "staff_invitation", restaurantId });
+
+    if (!sent.delivered) {
+      return {
+        status: "success",
+        message:
+          sent.reason === "not_configured"
+            ? `Invitation created for ${email}. Email delivery is not configured, so nothing was sent — use “Copy invite link” to share it directly.`
+            : `Invitation created for ${email}, but the email could not be sent. Use “Copy invite link” to share it directly.`,
+        inviteUrl: acceptUrl,
+      };
     }
     return {
       status: "success",
-      message: `Invitation ready for ${email}. They can create an account with this email and will join as ${role}.`,
+      message: `Invitation emailed to ${email}. They will join as ${role} once they accept.`,
+      inviteUrl: acceptUrl,
     };
   } catch (error) {
     console.error("[tenant] invite failed", error);
