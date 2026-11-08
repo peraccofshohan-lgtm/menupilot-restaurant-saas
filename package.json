@@ -24,7 +24,8 @@
     "menu:images": "tsx scripts/menu-images.ts optimize",
     "menu:audit": "tsx scripts/menu-images.ts audit",
     "qr:kit": "tsx scripts/qr-kit.ts",
-    "qr:verify": "tsx scripts/verify-qr-kit.ts"
+    "qr:verify": "tsx scripts/verify-qr-kit.ts",
+    "demo:history": "tsx scripts/demo-history.ts"
   },
   "repository": {
     "type": "git",

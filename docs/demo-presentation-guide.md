@@ -84,6 +84,26 @@ Covered by five tests in `npm test` (suite: `demo reset`), including
 "leaves another tenant's orders alone" and "clears orders but never the menu,
 tables, QR tokens or settings".
 
+Verified against the live demo tenant: 314 orders, 611 line items, 1,514 status
+events and 11 guest records were removed; 50 dishes, 7 categories, 20 tables, 20
+QR tokens and the settings row were read back unchanged. A kitchen session was
+refused with `forbidden` and a wrong phrase with `confirmation_mismatch`.
+
+### Filling it back up
+
+Reset leaves the dashboard empty, which is the point, but an empty dashboard is a
+poor thing to demo. `npm run demo:history` regenerates four weeks of plausible
+trade — 295 orders spread over 28 days with a realistic status mix, guest names,
+line items and status history.
+
+```bash
+npm run demo:history            # refuses if orders already exist
+npm run demo:history -- --force # add another four weeks on top
+```
+
+It refuses to run against a tenant that is not flagged `is_demo`, and it reports
+afterwards that the dishes, tables and QR codes were untouched.
+
 ## Deployment readiness — the honest status
 
 **This demo runs on localhost behind a preview proxy. It is not publicly
@@ -129,4 +149,5 @@ same Wi-Fi as the phone, and use the LAN address the dev server prints.
 | `src/lib/services/demo-reset.ts` | Preview + reset, maps SQL errors to messages |
 | `src/app/dashboard/demo/` | The owner-facing reset screen |
 | `tests/demo-reset.test.ts` | The five reset safety tests |
+| `scripts/demo-history.ts` | Regenerates demo order history after a reset |
 | `docs/corrupted-demo-database.md` | Post-mortem of the database that was lost |
