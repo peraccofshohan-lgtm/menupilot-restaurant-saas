@@ -3,23 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  BarChart3,
-  ChefHat,
-  ChevronsUpDown,
-  ExternalLink,
-  LayoutDashboard,
-  LogOut,
-  Menu as MenuIcon,
-  QrCode,
-  ReceiptText,
-  Settings,
-  Shield,
-  Store,
-  Users,
-  UtensilsCrossed,
-  X,
-} from "lucide-react";
+import { BarChart3, ChefHat, ChevronsUpDown, ExternalLink, LayoutDashboard, LogOut, Menu as MenuIcon, QrCode, ReceiptText, RotateCcw, Settings, Shield, Store, Users, UtensilsCrossed, X } from "lucide-react";
 import { cx } from "@/components/ui";
 import type { TenantContext, TenantRole } from "@/lib/auth/server";
 import { logoutAction, switchRestaurantAction } from "@/lib/actions/auth";
@@ -56,6 +40,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, roles: ["owner", "manager"] },
       { href: "/dashboard/staff", label: "Staff", icon: Shield, roles: ["owner"] },
       { href: "/dashboard/settings", label: "Settings", icon: Settings, roles: ["owner", "manager"] },
+      { href: "/dashboard/demo", label: "Demo data", icon: RotateCcw, roles: ["owner"] },
     ],
   },
 ];

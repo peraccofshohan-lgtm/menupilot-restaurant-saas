@@ -10,6 +10,7 @@ import { hashPassword, verifyPassword, checkPasswordPolicy } from "../src/lib/au
 import { makeSlug } from "../src/lib/validation";
 import { friendlyTransitionError } from "../src/lib/services/orders";
 import { mapServiceError } from "../src/lib/services/errors";
+import { previewDemoReset, resetDemoOrders } from "../src/lib/services/demo-reset";
 
 type TestFn = () => Promise<void> | void;
 interface Test {
@@ -1034,6 +1035,126 @@ async function main() {
 
   const formatter = new Intl.NumberFormat("en-US");
 
+  describe("demo reset", () => {
+    /** Marks the fixture tenant as a demo so the reset path is reachable. */
+    async function setDemo(restaurantId: string, isDemo: boolean) {
+      const database = await db();
+      await database.query("update public.restaurants set is_demo = $2 where id = $1", [restaurantId, isDemo]);
+    }
+
+    async function addOrder(restaurantId: string, tag: string) {
+      const database = await db();
+      const stamp = `${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      await database.query(
+        `insert into public.orders (restaurant_id, order_number, status, tracking_token, total, item_count)
+         values ($1, $2, 'pending', $3, 100, 1)`,
+        [restaurantId, `T-${stamp}`.slice(0, 60), `tok-${stamp}`.slice(0, 80)],
+      );
+    }
+
+    async function protectedCounts(restaurantId: string) {
+      const database = await db();
+      const res = await database.query<{ categories: number; menu_items: number; dining_tables: number; qr_tokens: number; settings: number }>(
+        `select
+           (select count(*) from public.categories where restaurant_id=$1)::int as categories,
+           (select count(*) from public.menu_items where restaurant_id=$1)::int as menu_items,
+           (select count(*) from public.dining_tables where restaurant_id=$1)::int as dining_tables,
+           (select count(*) from public.qr_tokens where restaurant_id=$1)::int as qr_tokens,
+           (select count(*) from public.restaurant_settings where restaurant_id=$1)::int as settings`,
+        [restaurantId],
+      );
+      return res.rows[0]!;
+    }
+
+    async function orderCount(restaurantId: string) {
+      const database = await db();
+      const res = await database.query<{ n: number }>(
+        "select count(*)::int n from public.orders where restaurant_id = $1",
+        [restaurantId],
+      );
+      return res.rows[0]!.n;
+    }
+
+    it("refuses a tenant that is not flagged as a demo", async () => {
+      const f = await getFixture();
+      await setDemo(f.restaurantId, false);
+      await addOrder(f.restaurantId, "nodemo");
+      const before = await orderCount(f.restaurantId);
+
+      const preview = await previewDemoReset(f.ownerId, f.restaurantId);
+      assert(preview.ok, "preview should work so the UI can explain why reset is disabled");
+      assertEquals(preview.preview.isDemo, false, "preview reports non-demo");
+
+      const result = await resetDemoOrders(f.ownerId, f.restaurantId, before, "RESET");
+      assertEquals(result.ok, false, "reset must be refused for a live restaurant");
+      assertEquals((result as { error: string }).error, "not_demo", "reports not_demo");
+      assertEquals(await orderCount(f.restaurantId), before, "no orders were touched");
+    });
+
+    it("refuses a wrong confirmation phrase", async () => {
+      const f = await getFixture();
+      await setDemo(f.restaurantId, true);
+      await addOrder(f.restaurantId, "phrase");
+      const before = await orderCount(f.restaurantId);
+
+      const result = await resetDemoOrders(f.ownerId, f.restaurantId, before, "please delete");
+      assertEquals(result.ok, false, "refused without the exact phrase");
+      assertEquals((result as { error: string }).error, "confirmation_mismatch", "reports a mismatch");
+      assertEquals(await orderCount(f.restaurantId), before, "nothing deleted");
+      await setDemo(f.restaurantId, false);
+    });
+
+    it("refuses a stale order count instead of deleting unseen orders", async () => {
+      const f = await getFixture();
+      await setDemo(f.restaurantId, true);
+      await addOrder(f.restaurantId, "stale");
+      const actual = await orderCount(f.restaurantId);
+
+      const result = await resetDemoOrders(f.ownerId, f.restaurantId, actual + 1, "RESET");
+      assertEquals(result.ok, false, "a mismatched count is refused");
+      assertEquals(await orderCount(f.restaurantId), actual, "nothing deleted");
+      await setDemo(f.restaurantId, false);
+    });
+
+    it("clears orders but never the menu, tables, QR tokens or settings", async () => {
+      const f = await getFixture();
+      await setDemo(f.restaurantId, true);
+      await addOrder(f.restaurantId, "clear");
+
+      const protectedBefore = await protectedCounts(f.restaurantId);
+      assert(protectedBefore.menu_items > 0, "fixture has menu items");
+      assert(protectedBefore.qr_tokens > 0, "fixture has QR tokens");
+
+      const before = await orderCount(f.restaurantId);
+      const result = await resetDemoOrders(f.ownerId, f.restaurantId, before, "RESET");
+      assert(result.ok, "reset succeeds for a demo tenant with the right confirmation");
+
+      const protectedAfter = await protectedCounts(f.restaurantId);
+      assertEquals(protectedAfter.menu_items, protectedBefore.menu_items, "menu items survive");
+      assertEquals(protectedAfter.categories, protectedBefore.categories, "categories survive");
+      assertEquals(protectedAfter.dining_tables, protectedBefore.dining_tables, "tables survive");
+      assertEquals(protectedAfter.qr_tokens, protectedBefore.qr_tokens, "QR tokens survive");
+      assertEquals(protectedAfter.settings, protectedBefore.settings, "settings survive");
+      assertEquals(await orderCount(f.restaurantId), 0, "orders are gone");
+      assertEquals(result.result.kept.menuItems, protectedBefore.menu_items, "result reports what was kept");
+      await setDemo(f.restaurantId, false);
+    });
+
+    it("leaves another tenant's orders alone", async () => {
+      const f = await getFixture();
+      await setDemo(f.restaurantId, true);
+      await addOrder(f.restaurantId, "mine");
+      await addOrder(f.otherRestaurantId, "theirs");
+      const theirs = await orderCount(f.otherRestaurantId);
+      assert(theirs > 0, "setup: other tenant has an order");
+
+      const result = await resetDemoOrders(f.ownerId, f.restaurantId, await orderCount(f.restaurantId), "RESET");
+      assert(result.ok, "reset succeeds");
+      assertEquals(await orderCount(f.otherRestaurantId), theirs, "other tenant untouched");
+      await setDemo(f.restaurantId, false);
+    });
+  });
+
   for (const [suiteIndex, suite] of suiteStack.entries()) {
     console.log(`  ${suite.name}`);
     for (const test of suite.tests) {
@@ -1095,7 +1216,10 @@ async function main() {
     }
   }
 
+
   await teardown();
+
+
 
   const passed = results.filter((r) => r.ok).length;
   const failed = results.length - passed;
