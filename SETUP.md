@@ -73,7 +73,7 @@ Open <http://localhost:3000>.
 
 ```bash
 npm run typecheck   # strict TypeScript, zero errors expected
-npm test            # 63 integration + security tests
+npm test            # 70 integration + security tests
 npm run build       # production build
 ```
 

@@ -122,9 +122,8 @@ type-checked by MIME **and** magic bytes, and capped at 5 MB.
 
 ## Testing strategy
 
-`npm test` starts a fresh embedded PostgreSQL, applies every migration from scratch and runs 63 tests across
-authentication, tenancy, QR access, ordering, lifecycle, metrics, menu CRUD, staff/settings, platform access and
-abuse protection. RLS is tested by running the same SQL as different identities and asserting what each one may
+`npm test` starts a fresh embedded PostgreSQL, applies every migration from scratch and runs 70 tests across
+authentication, tenancy, QR access, ordering, lifecycle, metrics, menu CRUD, staff/settings, platform access, user-facing error copy and abuse protection. RLS is tested by running the same SQL as different identities and asserting what each one may
 see — the database is the subject of the test, not a mock.
 
 ## Decisions worth knowing
