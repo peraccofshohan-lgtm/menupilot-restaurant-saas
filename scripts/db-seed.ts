@@ -17,6 +17,11 @@ console.log(`  categories : ${result.categories}`);
 console.log(`  dishes     : ${result.items}`);
 console.log(`  tables     : ${result.tables}`);
 console.log(`  orders     : ${result.orders}`);
+console.log(`  photos     : ${result.items - (result.missingPhotos?.length ?? 0)}/${result.items}`);
+if (result.missingPhotos && result.missingPhotos.length > 0) {
+  console.log(`  \x1b[33mno photo   : ${result.missingPhotos.length} dish(es) fell back to the ChefHat placeholder[0m`);
+  for (const name of result.missingPhotos) console.log(`             · ${name}`);
+}
 console.log(`  owner      : ${result.ownerEmail}`);
 console.log(`  admin      : ${result.adminEmail}`);
 if (result.generatedPassword) {

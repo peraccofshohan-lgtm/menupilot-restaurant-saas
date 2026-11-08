@@ -395,13 +395,26 @@ function CategoryChip({ active, onClick, children }: { active: boolean; onClick:
 }
 
 function MenuImage({ path, alt, className }: { path: string | null; alt: string; className?: string }) {
+  // A single failed photograph must never break the menu. The container keeps its
+  // size (it is sized by `className`, and the image is absolutely positioned inside
+  // it), so a broken image degrades to the ChefHat placeholder with no layout shift.
+  const [failed, setFailed] = React.useState(false);
+  const src = path ? mediaUrl("menu", path) : null;
+
   return (
-    <div className={cx("overflow-hidden rounded-lg bg-ink-100", className)}>
-      {path ? (
+    <div className={cx("relative overflow-hidden rounded-lg bg-ink-100", className)}>
+      {src && !failed ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={mediaUrl("menu", path)!} alt={alt} loading="lazy" className="size-full object-cover" />
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          className="absolute inset-0 size-full object-cover"
+        />
       ) : (
-        <div className="grid size-full place-items-center text-ink-300">
+        <div className="absolute inset-0 grid place-items-center text-ink-300">
           <ChefHat className="size-5" aria-hidden />
         </div>
       )}

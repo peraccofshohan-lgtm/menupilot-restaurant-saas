@@ -26,6 +26,7 @@ export interface SeedResult {
   slug: string;
   categories: number;
   items: number;
+  missingPhotos?: string[];
   tables: number;
   orders: number;
   credentialsFile?: string;
@@ -141,17 +142,31 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
   // Read every demo photograph once, before the transaction, so the write phase
   // is a single short transaction instead of one durable commit per row.
   const imageCache = new Map<string, Buffer>();
-  for (const category of DEMO_MENU) {
-    const names = [`${category.image}.jpg`];
-    for (const n of names) {
-      if (imageCache.has(n)) continue;
-      try {
-        imageCache.set(n, await readFile(path.join(IMAGE_DIR, n)));
-      } catch {
-        /* asset not present: item is seeded without a photo, never with a hotlink */
-      }
+
+  /** Reads one asset, remembering a miss so it is reported rather than retried. */
+  const missingAssets = new Set<string>();
+  async function loadAsset(relative: string): Promise<Buffer | null> {
+    if (imageCache.has(relative)) return imageCache.get(relative)!;
+    if (missingAssets.has(relative)) return null;
+    try {
+      const buffer = await readFile(path.join(IMAGE_DIR, relative));
+      imageCache.set(relative, buffer);
+      return buffer;
+    } catch {
+      missingAssets.add(relative);
+      return null;
     }
   }
+
+  // One photograph per dish. Every item names its own file; nothing is shared.
+  for (const category of DEMO_MENU) {
+    for (const item of category.items) {
+      await loadAsset(path.join("menu", `${item.photo}.webp`));
+    }
+  }
+  // Branding is optional and separate from the dish photography.
+  await loadAsset("logo-mati.png");
+  await loadAsset("cover-mati.jpg");
   for (const n of ["logo-mati.png", "cover-mati.jpg"]) {
     try {
       imageCache.set(n, await readFile(path.join(IMAGE_DIR, n)));
@@ -234,8 +249,8 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
   async function uploadSeedImage(file: string, bucket: "menu" | "branding", dir: string) {
     const data = imageCache.get(file);
     if (!data) return null;
-    const ext = file.split(".").pop() ?? "jpg";
-    const contentType = ext === "png" ? "image/png" : "image/jpeg";
+    const ext = file.split(".").pop()?.toLowerCase() ?? "jpg";
+    const contentType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
     const target = `${restaurantId}/${dir}/${file}`;
     await storage().put({ bucket, path: target, data, contentType, restaurantId }, q);
     return target;
@@ -252,6 +267,7 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
   }
 
   // ---- Categories & items -------------------------------------------------
+  const missingPhotos: string[] = [];
   const categoryIds = new Map<string, string>();
   const itemRows: { id: string; price: number; category: string; name: string }[] = [];
 
@@ -264,9 +280,18 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
     const categoryId = inserted.rows[0]!.id;
     categoryIds.set(category.key, categoryId);
 
-    const imagePath = await uploadSeedImage(`${category.image}.jpg`, "menu", "menu");
-
     for (const [itemIndex, item] of category.items.entries()) {
+      // The dish's own photograph, named after the dish. If it is not present the
+      // item is seeded with no image at all — never another dish's, because a wrong
+      // picture is worse for a menu than a clean fallback.
+      const photoPath = await uploadSeedImage(
+        path.join("menu", `${item.photo}.webp`),
+        "menu",
+        "menu",
+      );
+      const imagePath = photoPath;
+      if (!photoPath) missingPhotos.push(item.name);
+
       const row = await q.query<{ id: string }>(
         `insert into public.menu_items
            (restaurant_id, category_id, name, slug, description, price, image_path,
@@ -559,6 +584,8 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
     slug: DEMO_RESTAURANT.slug,
     categories: DEMO_MENU.length,
     items: itemRows.length,
+    /** Dishes whose photograph was not present, so a gap is never silent. */
+    missingPhotos,
     tables: tables.length,
     orders: orderCount,
     ownerEmail,

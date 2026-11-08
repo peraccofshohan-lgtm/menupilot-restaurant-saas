@@ -13,3 +13,8 @@ docs/assets/generated
 next-env.d.ts
 .DS_Store
 .vercel
+
+# Source food photographs (2-3 MB PNGs, 50 of them). Only the optimised WebP
+# assets in public/seed-images/menu/ ship; regenerate from these with
+# `npm run menu:images`.
+images/menu/

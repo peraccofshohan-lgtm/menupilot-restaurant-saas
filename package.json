@@ -20,7 +20,9 @@
     "smoke": "tsx scripts/smoke.ts",
     "test:security:remote": "MENUPILOT_TEST_EXTERNAL=1 tsx tests/security-run.ts",
     "db:migrate:remote": "tsx scripts/db-migrate.ts",
-    "test:gotrue": "tsx scripts/simulate-gotrue.ts"
+    "test:gotrue": "tsx scripts/simulate-gotrue.ts",
+    "menu:images": "tsx scripts/menu-images.ts optimize",
+    "menu:audit": "tsx scripts/menu-images.ts audit"
   },
   "repository": {
     "type": "git",
