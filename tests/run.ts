@@ -1075,6 +1075,26 @@ async function main() {
   });
   console.log(`\n  security audit: ${audit.passed} passed, ${audit.failed} failed`);
 
+  // Subsystem suite (tests/subsystems.test.ts): storage, email, realtime topics.
+  // Same process, same database — these are the modules that talk to Supabase.
+  console.log("\n  supabase subsystems");
+  const { subsystemSuites } = await import("./subsystems.test");
+  for (const test of subsystemSuites()) {
+    const t0 = Date.now();
+    try {
+      await test.fn();
+      const ms = Date.now() - t0;
+      results.push({ suite: "supabase subsystems", name: test.name, ok: true, ms });
+      console.log(`    \x1b[32m✓\x1b[0m ${test.name} \x1b[90m(${ms}ms)\x1b[0m`);
+    } catch (error) {
+      const ms = Date.now() - t0;
+      const message = error instanceof Error ? error.message : String(error);
+      results.push({ suite: "supabase subsystems", name: test.name, ok: false, ms, error: message });
+      console.log(`    \x1b[31m✗\x1b[0m ${test.name}`);
+      console.log(`      \x1b[31m${message}\x1b[0m`);
+    }
+  }
+
   await teardown();
 
   const passed = results.filter((r) => r.ok).length;
