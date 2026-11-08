@@ -7,11 +7,12 @@ wired up. Written for the moment before a client sits down.
 
 | | |
 | --- | --- |
-| Tenant | MATI Kitchen · `1eb6fd7d-ef03-4cdb-afdc-d94f72f33dd4` |
+| Tenant | MATI Kitchen · `f8d06447-a361-495b-84d5-1f9b417c6fef` |
 | Categories | 7 |
 | Dishes | 50, each with its own photograph (50/50 unique) |
 | Tables | 20, each with its own QR token (48 hex chars) |
-| Print kit | 6-page A4 PDF — cover overview + five cut-out sheets |
+| Print kit | 6-page A4 PDF — cover overview + five cut-out sheets (20/20 tokens verified) |
+| Order history | 297 orders · 261 reviews · 4 service requests |
 | Staff logins | owner / kitchen / admin |
 
 Pictures are optimised WebP (1200×1200, quality 82, ~129 KiB each) served from
@@ -60,10 +61,36 @@ npx next dev -H 0.0.0.0 -p 3000
 7. Guest's tracking page shows Ready, with no refresh needed on a fast connection
    and within the poll interval otherwise.
 8. Owner marks Served.
+9. Guest rates the visit and each dish; the owner replies from
+   `/dashboard/reviews` and the guest's tracking page shows the reply.
+10. Guest taps "Call waiter" on the tracking page; the request appears on
+    `/dashboard/service` and the kitchen acknowledges it.
 
 Steps 4 and 5 are the ones that demonstrate the product is a real system rather
 than a form: try to move the order to Preparing as kitchen before the owner
 accepts, and let them watch it be refused.
+
+### Details worth pointing at
+
+- **Preparation estimate.** The owner chooses it in the same action that accepts
+  the order. The guest sees a live countdown, not a static number. When it is
+  revised the guest's activity feed says so, with the new figure.
+- **Special instructions.** Preset chips (no onion, extra spicy, sauce on the
+  side…) append to whatever the guest typed. The instruction follows the dish
+  all the way onto the kitchen ticket.
+- **Activity feed.** Everything that has happened to the order, newest first,
+  including the restaurant's reply to a review. It refreshes with the page, so
+  nothing has to be reloaded by hand.
+- **Reviews are earned, not extracted.** Only a served order can be reviewed,
+  once per dish and once per visit. Duplicates are refused by the database, not
+  by the browser.
+- **Moderation never deletes.** Hiding a review keeps the row and the stars, and
+  a reply already given stays visible to that guest.
+- **Reorder.** A returning guest gets their previous orders on the menu page and
+  one tap refills the cart — prices are always re-read from the live menu, and
+  any dish that has left the menu is named rather than silently dropped.
+- **Most popular, not most profitable.** Analytics ranks dishes by plates sold
+  next to the revenue ranking, because they answer different questions.
 
 ## Demo reset
 
@@ -93,8 +120,9 @@ refused with `forbidden` and a wrong phrase with `confirmation_mismatch`.
 
 Reset leaves the dashboard empty, which is the point, but an empty dashboard is a
 poor thing to demo. `npm run demo:history` regenerates four weeks of plausible
-trade — 295 orders spread over 28 days with a realistic status mix, guest names,
-line items and status history.
+trade — 297 orders spread over 28 days with a realistic status mix, guest names,
+line items, status history, 261 reviews with restaurants' replies and 4 service
+requests. These are the figures the rebuilt demo currently holds.
 
 ```bash
 npm run demo:history            # refuses if orders already exist
