@@ -8,6 +8,7 @@ import { AlertCircle, ArrowLeft, ChefHat, Info, Minus, Plus, Receipt, Trash2, Us
 import { formatMoney } from "@/lib/format";
 import type { PublicMenu } from "@/lib/services/orders";
 import { useCart } from "@/lib/customer/cart";
+import { useOrderHistory } from "@/lib/customer/order-history";
 import { cx } from "@/components/ui";
 
 interface PlacedOrder {
@@ -31,6 +32,7 @@ interface PlacedOrder {
 export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: string }) {
   const router = useRouter();
   const { lines, setQuantity, remove, clear, hydrateFor } = useCart();
+  const rememberOrder = useOrderHistory((state) => state.remember);
   const [name, setName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [note, setNote] = React.useState("");
@@ -98,6 +100,23 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
         setSubmitting(false);
         return;
       }
+      // Remember what was ordered so this phone can offer a one-tap reorder.
+      // Names and quantities only — a reorder is always re-priced by the server.
+      rememberOrder(qrToken, {
+        id: data.order.orderNumber,
+        orderNumber: data.order.orderNumber,
+        total: data.order.total,
+        currency: data.order.currency,
+        itemCount: data.order.itemCount,
+        tableLabel: data.order.tableLabel ?? null,
+        placedAt: new Date().toISOString(),
+        lines: detailed.map((entry) => ({
+          menuItemId: entry.item.id,
+          name: entry.item.name,
+          quantity: entry.line.quantity,
+          note: entry.line.note,
+        })),
+      });
       clear();
       setPlaced(data.order);
       // A replay returns no token (the raw value was issued once). Stay on the

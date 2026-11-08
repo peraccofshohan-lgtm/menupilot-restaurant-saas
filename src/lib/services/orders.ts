@@ -547,3 +547,151 @@ export async function createOrder(input: {
     return { ok: false, error: friendlyCustomerError(message) };
   }
 }
+
+/* --------------------------- Guest notification feed ---------------------- */
+
+/**
+ * A single line in the guest's order feed.
+ *
+ * This is deliberately derived from the order snapshot rather than stored:
+ * the timeline is already the source of truth, so a feed built from it can
+ * never drift out of sync with what the kitchen actually did. `at` is null for
+ * future steps, which the UI renders as dimmed "not yet" rows.
+ */
+export interface OrderNotification {
+  key: string;
+  tone: "neutral" | "good" | "warn";
+  title: string;
+  detail: string;
+  at: string | null;
+}
+
+type NotificationOrder = {
+  status: string;
+  placed_at: string;
+  accepted_at: string | null;
+  preparing_at: string | null;
+  ready_at: string | null;
+  served_at: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  eta_minutes: number | null;
+  eta_revisions: number;
+  reviews?: {
+    mine: { kind: "item" | "restaurant"; reply: string | null; reply_at: string | null; item_name: string | null }[];
+  };
+};
+
+/**
+ * Builds the guest-facing activity feed: newest first, only what has happened
+ * (plus a reply from the kitchen, which guests otherwise never see).
+ *
+ * Ordering is by timestamp where one exists. Steps that share a timestamp keep
+ * the lifecycle order, so a fast "accepted then preparing" never reads backwards.
+ */
+export function orderNotifications(order: NotificationOrder): OrderNotification[] {
+  const items: OrderNotification[] = [];
+
+  items.push({
+    key: "placed",
+    tone: "good",
+    title: "Order received",
+    detail: "We sent your order to the kitchen.",
+    at: order.placed_at,
+  });
+
+  if (order.status === "rejected") {
+    items.push({
+      key: "rejected",
+      tone: "warn",
+      title: "Order not accepted",
+      detail: order.rejection_reason ?? "Please speak to a member of staff.",
+      at: order.rejected_at ?? order.placed_at,
+    });
+    return items.reverse();
+  }
+
+  // `eta_revisions` counts every time an estimate was written, including the
+  // first one at acceptance. Unwinding it here keeps "Kitchen confirmed"
+  // quoting the promise the restaurant originally made, while the revision
+  // event below carries the new number — otherwise the feed would say the same
+  // thing twice and quietly rewrite history.
+  const revised = order.eta_revisions >= 2 && order.accepted_at !== null;
+  if (order.accepted_at) {
+    items.push({
+      key: "accepted",
+      tone: "good",
+      title: "Kitchen confirmed",
+      detail:
+        order.eta_minutes !== null
+          ? revised
+            ? "They gave you a preparation estimate."
+            : `They expect about ${order.eta_minutes} minutes.`
+          : "Your order is queued for the kitchen.",
+      at: order.accepted_at,
+    });
+  }
+
+  // A *revised* estimate is its own event: guests complained that the number
+  // changed with no explanation, so it gets a line in the feed. Note the
+  // counter also increments on the first estimate, so a second estimate is the
+  // earliest real revision — otherwise acceptance would be announced twice.
+  if (revised) {
+    items.push({
+      key: "eta-revised",
+      tone: "neutral",
+      title: "Preparation time updated",
+      detail:
+        order.eta_minutes !== null
+          ? `The kitchen now expects about ${order.eta_minutes} minutes.`
+          : "The kitchen is recalibrating the estimate.",
+      at: order.accepted_at,
+    });
+  }
+
+  if (order.preparing_at) {
+    items.push({
+      key: "preparing",
+      tone: "neutral",
+      title: "Being cooked",
+      detail: "Your dishes are on the stove now.",
+      at: order.preparing_at,
+    });
+  }
+
+  if (order.ready_at) {
+    items.push({
+      key: "ready",
+      tone: "warn",
+      title: "Ready and coming to your table",
+      detail: "Please stay seated — a server is bringing it over.",
+      at: order.ready_at,
+    });
+  }
+
+  if (order.served_at) {
+    items.push({
+      key: "served",
+      tone: "good",
+      title: "Served",
+      detail: "Enjoy your meal. You can rate each dish now.",
+      at: order.served_at,
+    });
+  }
+
+  for (const review of order.reviews?.mine ?? []) {
+    if (!review.reply || !review.reply_at) continue;
+    items.push({
+      key: `reply-${review.item_name ?? review.kind}`,
+      tone: "good",
+      title: "The restaurant replied to your review",
+      detail: review.reply,
+      at: review.reply_at,
+    });
+  }
+
+  // Only events that have happened; the tracker shows what is still to come.
+  return items
+    .filter((item) => item.at !== null)
+    .sort((a, b) => new Date(b.at!).getTime() - new Date(a.at!).getTime());
+}

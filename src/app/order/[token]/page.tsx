@@ -8,7 +8,7 @@ import { OrderTracker } from "@/components/customer/order-tracker";
 import { EtaTimer } from "@/components/customer/eta-timer";
 import { ServiceRequest } from "@/components/customer/service-request";
 import { ReviewControls } from "@/components/customer/review-controls";
-import { getTrackedOrder } from "@/lib/services/orders";
+import { getTrackedOrder, orderNotifications } from "@/lib/services/orders";
 import { etaState } from "@/lib/services/reviews";
 import { formatDateTime, formatMoney, timeAgo } from "@/lib/format";
 
@@ -36,6 +36,9 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
   const eta = etaState(order);
   const reviewedItems = new Set((order.reviews.item_reviewed ?? []).filter(Boolean) as string[]);
   const canReview = order.reviews?.visited === true;
+  // The feed is derived from the order snapshot, so it refreshes whenever the
+  // polling tracker refreshes the page — no separate notification store to drift.
+  const feed = orderNotifications(order);
 
   return (
     <main className="min-h-dvh bg-ink-50 pb-10">
@@ -121,6 +124,39 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
             </ol>
           ) : null}
         </Card>
+
+        {feed.length > 0 ? (
+          <Card className="mt-4 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-[13px] font-semibold text-ink-900">Activity</h2>
+              <span className="text-[10.5px] text-ink-400">updates on its own</span>
+            </div>
+            <ol className="mt-2.5 space-y-0">
+              {feed.map((event, index) => (
+                <li key={event.key} className="flex gap-2.5">
+                  <div className="flex flex-col items-center">
+                    <span
+                      className={
+                        event.tone === "good"
+                          ? "mt-1.5 size-1.5 shrink-0 rounded-full bg-moss-600"
+                          : event.tone === "warn"
+                            ? "mt-1.5 size-1.5 shrink-0 rounded-full bg-clay-600"
+                            : "mt-1.5 size-1.5 shrink-0 rounded-full bg-ink-300"
+                      }
+                      aria-hidden
+                    />
+                    {index < feed.length - 1 ? <span className="my-1 w-px flex-1 bg-ink-200" aria-hidden /> : null}
+                  </div>
+                  <div className={index < feed.length - 1 ? "pb-2.5" : ""}>
+                    <p className="text-[12.5px] font-medium text-ink-800">{event.title}</p>
+                    <p className="text-[11.5px] leading-snug text-ink-500">{event.detail}</p>
+                    {event.at ? <p className="mt-0.5 text-[10.5px] text-ink-400">{timeAgo(event.at)}</p> : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </Card>
+        ) : null}
 
         <Card className="mt-4 p-4">
           <h2 className="text-[13px] font-semibold text-ink-900">Your order</h2>

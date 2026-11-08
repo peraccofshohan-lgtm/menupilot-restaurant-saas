@@ -8,7 +8,9 @@
 import { ANON, as, asUser, createOrderAsGuest, createSecondTenant, db, getFixture, setup, teardown, transition } from "./harness";
 import { hashPassword, verifyPassword, checkPasswordPolicy } from "../src/lib/auth/password";
 import { makeSlug } from "../src/lib/validation";
-import { friendlyTransitionError } from "../src/lib/services/orders";
+import { friendlyTransitionError, orderNotifications } from "../src/lib/services/orders";
+import { reorderLines } from "../src/lib/customer/order-history";
+import { NOTE_LIMIT, NOTE_PRESETS, appendNote } from "../src/components/customer/guest-menu";
 import { mapServiceError } from "../src/lib/services/errors";
 import { previewDemoReset, resetDemoOrders } from "../src/lib/services/demo-reset";
 import { etaState, friendlyReviewError } from "../src/lib/services/reviews";
@@ -1424,6 +1426,150 @@ function describeReviewsAndEta() {
         "kitchen cannot reply",
       );
       assertEquals(friendlyReviewError(message), "Your role cannot do that.", "and the copy is specific");
+    });
+  });
+
+  describe("guest activity feed", () => {
+    const base = {
+      status: "pending",
+      placed_at: "2026-11-08T10:00:00Z",
+      accepted_at: null,
+      preparing_at: null,
+      ready_at: null,
+      served_at: null,
+      rejected_at: null,
+      rejection_reason: null,
+      eta_minutes: null,
+      eta_revisions: 0,
+    };
+
+    it("newest event first, and only what already happened", () => {
+      const feed = orderNotifications({
+        ...base,
+        status: "ready",
+        accepted_at: "2026-11-08T10:05:00Z",
+        preparing_at: "2026-11-08T10:07:00Z",
+        ready_at: "2026-11-08T10:20:00Z",
+        eta_minutes: 15,
+      });
+      assertEquals(feed.map((event) => event.key).join(","), "ready,preparing,accepted,placed", "reverse chronological");
+      assertEquals(feed[0]!.title, "Ready and coming to your table", "with guest-facing copy");
+      assert(feed.every((event) => event.at !== null), "no future rows are rendered");
+    });
+
+    it("says what the kitchen expects once an estimate exists", () => {
+      const feed = orderNotifications({ ...base, status: "accepted", accepted_at: "2026-11-08T10:05:00Z", eta_minutes: 25 });
+      const accepted = feed.find((event) => event.key === "accepted");
+      assert(accepted!.detail.includes("25 minutes"), "the estimate is quoted");
+    });
+
+    it("does not repeat the first estimate as a revision", () => {
+      const feed = orderNotifications({
+        ...base,
+        status: "accepted",
+        accepted_at: "2026-11-08T10:05:00Z",
+        eta_minutes: 20,
+        eta_revisions: 1,
+      });
+      assert(!feed.some((event) => event.key === "eta-revised"), "acceptance announces the estimate once");
+    });
+
+    it("explains a changed estimate as its own event", () => {
+      const feed = orderNotifications({
+        ...base,
+        status: "preparing",
+        accepted_at: "2026-11-08T10:05:00Z",
+        preparing_at: "2026-11-08T10:06:00Z",
+        eta_minutes: 40,
+        eta_revisions: 2,
+      });
+      const revised = feed.find((event) => event.key === "eta-revised");
+      assert(revised, "a revision is surfaced");
+      assert(revised!.detail.includes("40 minutes"), "with the new number");
+      const accepted = feed.find((event) => event.key === "accepted");
+      assert(!accepted!.detail.includes("40 minutes"), "acceptance does not quote the rewritten number");
+    });
+
+    it("reports a rejection and stops there", () => {
+      const feed = orderNotifications({
+        ...base,
+        status: "rejected",
+        rejected_at: "2026-11-08T10:02:00Z",
+        rejection_reason: "Kitchen just closed",
+      });
+      assertEquals(feed.map((event) => event.key).join(","), "rejected,placed", "no invented cooking steps");
+      assertEquals(feed[0]!.detail, "Kitchen just closed", "with the restaurant's reason");
+      assertEquals(feed[0]!.tone, "warn", "flagged for attention");
+    });
+
+    it("surfaces the restaurant's reply in the feed", () => {
+      const feed = orderNotifications({
+        ...base,
+        status: "served",
+        accepted_at: "2026-11-08T10:05:00Z",
+        served_at: "2026-11-08T10:30:00Z",
+        reviews: {
+          mine: [
+            { kind: "restaurant", reply: "Thanks for coming!", reply_at: "2026-11-08T11:00:00Z", item_name: null },
+            { kind: "item", reply: null, reply_at: null, item_name: "Beef Bhuna" },
+          ],
+        },
+      });
+      const reply = feed.find((event) => event.key === "reply-restaurant");
+      assert(reply, "the reply appears as an event");
+      assertEquals(reply!.detail, "Thanks for coming!", "verbatim");
+      assertEquals(feed[0]!.key, "reply-restaurant", "and it is the newest thing that happened");
+    });
+  });
+
+  describe("preset instruction chips", () => {
+    it("appends a preset to what the guest already typed", () => {
+      assertEquals(appendNote("", "No onion"), "No onion", "empty note becomes the preset");
+      assertEquals(appendNote("Birthday plate", "Extra spicy"), "Birthday plate, Extra spicy", "own words are kept");
+    });
+
+    it("never duplicates a preset, and tolerates a trailing comma", () => {
+      assertEquals(appendNote("No onion, Extra spicy", "No onion"), "No onion, Extra spicy", "tapping twice is idempotent");
+      assertEquals(appendNote("No onion,", "Extra spicy"), "No onion, Extra spicy", "no double comma");
+      assertEquals(appendNote("no onion", "No onion"), "no onion", "case-insensitive match");
+    });
+
+    it("respects the 200 character note limit", () => {
+      const full = "x".repeat(NOTE_LIMIT);
+      assertEquals(appendNote(full, "No onion").length, NOTE_LIMIT, "never overflows the column");
+      assert(NOTE_PRESETS.length <= 8, "the chip row still fits on a phone");
+    });
+  });
+
+  describe("reorder from history", () => {
+    it("maps a past order back onto live menu ids", () => {
+      const { lines, unavailable } = reorderLines(
+        [
+          { menuItemId: "a", name: "Beef Bhuna", quantity: 2, note: "Extra spicy" },
+          { menuItemId: "b", name: "Lassi", quantity: 1 },
+        ],
+        [{ id: "a", name: "Beef Bhuna" }, { id: "b", name: "Lassi" }],
+      );
+      assertEquals(lines.length, 2, "both lines restored");
+      assertEquals(lines[0]!.note, "Extra spicy", "and the guest's note survives");
+      assertEquals(unavailable.length, 0, "nothing dropped");
+    });
+
+    it("drops dishes that have left the menu and names them", () => {
+      const { lines, unavailable } = reorderLines(
+        [{ menuItemId: "gone", name: "Discontinued Curry", quantity: 1 }],
+        [{ id: "a", name: "Beef Bhuna" }],
+      );
+      assertEquals(lines.length, 0, "a ghost line is never added to the cart");
+      assertEquals(unavailable.join(","), "Discontinued Curry", "the guest is told which dish went");
+    });
+
+    it("clamps absurd quantities instead of trusting storage", () => {
+      const { lines } = reorderLines(
+        [{ menuItemId: "a", name: "Beef Bhuna", quantity: 5000 }],
+        [{ id: "a", name: "Beef Bhuna" }],
+      );
+      assertEquals(lines[0]!.quantity, 99, "capped at the menu limit");
     });
   });
 

@@ -20,6 +20,42 @@ import { formatMoney } from "@/lib/format";
 import type { PublicMenu } from "@/lib/services/orders";
 import { cartCount, useCart } from "@/lib/customer/cart";
 import { cx } from "@/components/ui";
+import { OrderHistoryPanel } from "@/components/customer/order-history";
+
+/** The item note column allows 200 characters; the chips respect the same cap. */
+export const NOTE_LIMIT = 200;
+
+/**
+ * The instructions that cover most real kitchen requests. Kept short so the
+ * whole row still fits on a narrow phone, and descriptive enough that the
+ * kitchen ticket reads like a sentence rather than a code.
+ */
+export const NOTE_PRESETS = [
+  "No onion",
+  "Extra spicy",
+  "Less spicy",
+  "No chilli",
+  "Sauce on the side",
+  "No coriander",
+  "Well done",
+  "No nuts",
+] as const;
+
+/**
+ * Appends a preset to the existing free-text note without duplicating it and
+ * without silently dropping what the guest already typed.
+ */
+export function appendNote(current: string, preset: string): string {
+  const trimmed = current.trim();
+  if (!trimmed) return preset.slice(0, NOTE_LIMIT);
+  const already = trimmed
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .includes(preset.toLowerCase());
+  if (already) return trimmed;
+  const joined = `${trimmed.replace(/,\s*$/, "")}, ${preset}`;
+  return joined.length <= NOTE_LIMIT ? joined : joined.slice(0, NOTE_LIMIT);
+}
 
 /**
  * Guest menu.
@@ -129,6 +165,15 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
 
         {menu.restaurant.description ? (
           <p className="mt-3 text-[13px] leading-relaxed text-ink-600">{menu.restaurant.description}</p>
+        ) : null}
+
+        {/* Device-local order history. Only shown in a QR session, because a
+            browsing visitor has no table and therefore no past orders here. */}
+        {qrToken && orderingEnabled ? (
+          <OrderHistoryPanel
+            qrToken={qrToken}
+            menuItems={menu.items.map((item) => ({ id: item.id, name: item.name }))}
+          />
         ) : null}
 
         {/* Search */}
@@ -491,11 +536,52 @@ function ItemSheet({
                 <textarea
                   id="item-note"
                   value={note}
-                  onChange={(event) => setNote(event.target.value.slice(0, 200))}
+                  onChange={(event) => setNote(event.target.value.slice(0, NOTE_LIMIT))}
                   rows={2}
                   placeholder="No onion, extra spicy, sauce on the side…"
                   className="mt-1 w-full rounded-lg border border-ink-200 px-2.5 py-2 text-[13px] text-ink-800 placeholder:text-ink-400 focus:border-clay-500 focus:outline-none focus:ring-2 focus:ring-clay-500/25"
                 />
+                {/* One tap beats typing on a phone at a table. These append to
+                    whatever is already written, so guests never lose their own
+                    words when they tap a chip. */}
+                <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Common instructions">
+                  {NOTE_PRESETS.map((preset) => {
+                    const active = note
+                      .split(",")
+                      .map((part) => part.trim().toLowerCase())
+                      .includes(preset.toLowerCase());
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() =>
+                          setNote((current) =>
+                            active
+                              ? current
+                                  .split(",")
+                                  .map((part) => part.trim())
+                                  .filter((part) => part.toLowerCase() !== preset.toLowerCase())
+                                  .join(", ")
+                                  .slice(0, NOTE_LIMIT)
+                              : appendNote(current, preset),
+                          )
+                        }
+                        className={cx(
+                          "rounded-full border px-2 py-1 text-[11.5px] font-medium transition-colors",
+                          active
+                            ? "border-clay-500 bg-clay-50 text-clay-700"
+                            : "border-ink-200 text-ink-600 hover:border-ink-300 hover:bg-ink-50",
+                        )}
+                      >
+                        {preset}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-right text-[10.5px] tabular-nums text-ink-400">
+                  {note.length}/{NOTE_LIMIT}
+                </p>
               </div>
 
               <div className="mt-4 flex items-center justify-between gap-3">

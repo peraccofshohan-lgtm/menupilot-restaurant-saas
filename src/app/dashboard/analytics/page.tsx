@@ -64,6 +64,15 @@ export default async function AnalyticsPage({
   const statuses = Object.entries(data.status_breakdown ?? {}).sort((a, b) => b[1] - a[1]);
   const totalOrders = statuses.reduce((sum, [, count]) => sum + count, 0);
 
+  // Popularity is ranked by quantity sold, not revenue: the question "what do
+  // people actually order" is different from "what makes the most money", and
+  // a cheap dish that every table adds is worth seeing on its own.
+  const unitsSold = data.top_items.reduce((sum, item) => sum + Number(item.quantity), 0);
+  const topDish = [...data.top_items].sort((a, b) => Number(b.quantity) - Number(a.quantity))[0] ?? null;
+  const topCategory =
+    [...data.category_performance].sort((a, b) => Number(b.quantity) - Number(a.quantity))[0] ?? null;
+  const categoryUnits = data.category_performance.reduce((sum, category) => sum + Number(category.quantity), 0);
+
   const hasData = Number(data.totals.orders) > 0;
 
   return (
@@ -229,6 +238,50 @@ export default async function AnalyticsPage({
                         </div>
                       </li>
                     ))}
+                  </ul>
+                )}
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader title="Most popular" description="Ranked by plates sold, not by revenue." />
+              <CardBody className="pt-0">
+                {!topDish && !topCategory ? (
+                  <EmptyState compact title="Nothing sold yet" description="Popularity appears once dishes are served." />
+                ) : (
+                  <ul className="divide-y divide-ink-100">
+                    {topDish ? (
+                      <li className="py-2.5">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <p className="truncate text-[12.5px] font-medium text-ink-800">
+                            <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600">Dish</span>
+                            {topDish.name}
+                          </p>
+                          <span className="shrink-0 text-[12px] font-semibold tabular-nums text-ink-900">
+                            {formatNumber(Number(topDish.quantity))} sold
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-ink-500">
+                          {percent(Number(topDish.quantity), unitsSold)}% of all plates · {formatMoney(topDish.revenue, currency)}
+                        </p>
+                      </li>
+                    ) : null}
+                    {topCategory ? (
+                      <li className="py-2.5">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <p className="truncate text-[12.5px] font-medium text-ink-800">
+                            <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">Category</span>
+                            {topCategory.name}
+                          </p>
+                          <span className="shrink-0 text-[12px] font-semibold tabular-nums text-ink-900">
+                            {formatNumber(Number(topCategory.quantity))} sold
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-ink-500">
+                          {percent(Number(topCategory.quantity), categoryUnits)}% of all plates
+                        </p>
+                      </li>
+                    ) : null}
                   </ul>
                 )}
               </CardBody>
