@@ -25,7 +25,8 @@
     "menu:audit": "tsx scripts/menu-images.ts audit",
     "qr:kit": "tsx scripts/qr-kit.ts",
     "qr:verify": "tsx scripts/verify-qr-kit.ts",
-    "demo:history": "tsx scripts/demo-history.ts"
+    "demo:history": "tsx scripts/demo-history.ts",
+    "i18n:check": "tsx scripts/check-i18n.ts"
   },
   "repository": {
     "type": "git",

@@ -6,6 +6,9 @@ import { Badge, Button, EmptyState, cx } from "@/components/ui";
 import type { KitchenTicket } from "@/lib/services/orders";
 import type { TenantRole } from "@/lib/auth/server";
 import { useRealtimePulse } from "@/components/dashboard/realtime-bridge";
+import { formatMinutesShort, formatNumber } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import { localizedTableLabel } from "@/lib/i18n/content";
 
 /**
  * Kitchen Display System.
@@ -14,12 +17,12 @@ import { useRealtimePulse } from "@/components/dashboard/realtime-bridge";
  * navigation chrome, and an audio cue when a new ticket arrives. It polls its own
  * authorized feed so it keeps working after a laptop sleeps or a Wi-Fi blip.
  */
-type Column = { key: "accepted" | "preparing" | "ready"; title: string; hint: string; accent: string };
+type Column = { key: "accepted" | "preparing" | "ready"; titleKey: string; hintKey: string; accent: string };
 
 const COLUMNS: Column[] = [
-  { key: "accepted", title: "To start", hint: "Approved, waiting for a cook", accent: "border-t-sky-400" },
-  { key: "preparing", title: "On the pass", hint: "Being cooked right now", accent: "border-t-clay-400" },
-  { key: "ready", title: "Ready", hint: "Waiting for a runner", accent: "border-t-violet-400" },
+  { key: "accepted", titleKey: "kitchen.toStart", hintKey: "kitchen.toStartHint", accent: "border-t-sky-400" },
+  { key: "preparing", titleKey: "kitchen.onPass", hintKey: "kitchen.onPassHint", accent: "border-t-clay-400" },
+  { key: "ready", titleKey: "kitchen.readyColumn", hintKey: "kitchen.readyHint", accent: "border-t-violet-400" },
 ];
 
 export function KitchenBoard({
@@ -33,6 +36,7 @@ export function KitchenBoard({
   role: TenantRole;
   initialTickets: KitchenTicket[];
 }) {
+  const t = useT();
   const [tickets, setTickets] = React.useState<KitchenTicket[]>(initialTickets);
   const [status, setStatus] = React.useState<"live" | "offline" | "connecting">("live");
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -132,10 +136,10 @@ export function KitchenBoard({
         body: JSON.stringify({ orderId: ticket.id, next, restaurantId }),
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
-      if (!data.ok) setError(data.error ?? "That ticket could not be updated.");
+      if (!data.ok) setError(data.error ?? t("error.generic"));
       else await refresh();
     } catch {
-      setError("Network problem — the ticket was not updated.");
+      setError(t("error.network"));
       setStatus("offline");
     } finally {
       setBusy(null);
@@ -187,11 +191,11 @@ export function KitchenBoard({
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
       if (!data.ok) {
-        setError(data.error ?? "That line could not be updated.");
+        setError(data.error ?? t("error.generic"));
         await refresh();
       }
     } catch {
-      setError("Network problem — that line was not updated.");
+      setError(t("error.network"));
       await refresh();
     } finally {
       setBusy(null);
@@ -219,9 +223,9 @@ export function KitchenBoard({
             )}
           >
             {status === "live" ? <span className="size-1.5 rounded-full bg-current" aria-hidden /> : <WifiOff className="size-2.5" aria-hidden />}
-            {status === "live" ? "Live" : "Reconnecting"}
+            {status === "live" ? t("orders.live") : t("orders.reconnecting")}
           </span>
-          <Badge tone="neutral">{total} active ticket{total === 1 ? "" : "s"}</Badge>
+          <Badge tone="neutral">{t("kitchen.activeTickets", { count: formatNumber(total) })}</Badge>
         </div>
         <div className="flex items-center gap-1.5">
           <button
@@ -238,14 +242,14 @@ export function KitchenBoard({
             )}
           >
             <Clock3 className="size-3" aria-hidden />
-            Delayed {lateCount > 0 ? `· ${lateCount}` : "· none"}
+            {t("kitchen.delayed")} {lateCount > 0 ? `· ${formatNumber(lateCount)}` : ""}
           </button>
-          <Button size="sm" variant="ghost" onClick={() => void refresh()} aria-label="Refresh tickets">
-            <RefreshCw className="size-3.5" aria-hidden /> Refresh
+          <Button size="sm" variant="ghost" onClick={() => void refresh()} aria-label={t("orders.refresh")}>
+            <RefreshCw className="size-3.5" aria-hidden /> {t("orders.refresh")}
           </Button>
           <Button size="sm" variant="secondary" onClick={() => setFullscreen((value) => !value)}>
             {fullscreen ? <Minimize2 className="size-3.5" aria-hidden /> : <Maximize2 className="size-3.5" aria-hidden />}
-            {fullscreen ? "Exit" : "Full screen"}
+            {fullscreen ? t("action.cancel") : t("kitchen.fullScreen")}
           </Button>
         </div>
       </div>
@@ -260,18 +264,18 @@ export function KitchenBoard({
         <div className="rounded-[var(--radius-card)] border border-ink-200 bg-white py-20">
           <EmptyState
             icon={<BellRing className="size-5" aria-hidden />}
-            title="The pass is clear"
-            description="Approved orders appear here instantly, oldest first. Keep this screen open on any tablet in the kitchen."
+            title={t("kitchen.passClear")}
+            description={t("kitchen.passClearHint")}
           />
         </div>
       ) : (
         <div className="grid gap-3 lg:grid-cols-3">
           {grouped.map((column) => (
-            <section key={column.key} aria-label={column.title} className="min-w-0">
+            <section key={column.key} aria-label={t(column.titleKey)} className="min-w-0">
               <div className="mb-2 flex items-baseline justify-between gap-2">
                 <div>
-                  <h2 className="text-[13.5px] font-semibold text-ink-900">{column.title}</h2>
-                  <p className="text-[11px] text-ink-400">{column.hint}</p>
+                  <h2 className="text-[13.5px] font-semibold text-ink-900">{t(column.titleKey)}</h2>
+                  <p className="text-[11px] text-ink-400">{t(column.hintKey)}</p>
                 </div>
                 <span className="text-[12px] font-semibold tabular-nums text-ink-500">{column.items.length}</span>
               </div>
@@ -295,7 +299,7 @@ export function KitchenBoard({
                     >
                       <div className="flex items-start justify-between gap-2 border-b border-ink-100 px-3 py-2">
                         <div className="min-w-0">
-                          <p className="truncate text-[15px] font-semibold text-ink-900">{ticket.table_label ?? "Counter"}</p>
+                          <p className="truncate text-[15px] font-semibold text-ink-900">{localizedTableLabel(ticket.table_label) || t("unit.counter")}</p>
                           <p className="text-[10.5px] text-ink-400">{ticket.order_number}</p>
                         </div>
                         <span
@@ -304,7 +308,7 @@ export function KitchenBoard({
                             urgent ? "bg-red-50 text-red-700 ring-red-200" : "bg-ink-100 text-ink-600 ring-ink-200",
                           )}
                         >
-                          <Clock3 className="size-2.5" aria-hidden /> {minutes}m
+                          <Clock3 className="size-2.5" aria-hidden /> {formatMinutesShort(minutes)}
                         </span>
                       </div>
 
@@ -312,15 +316,15 @@ export function KitchenBoard({
                         <span className="text-[10.5px] text-ink-500">
                           {ticket.eta_minutes
                             ? late.late
-                              ? `${late.lateMinutes}m past the ${ticket.eta_minutes}m estimate`
+                              ? t("kitchen.etaOver", { over: formatMinutesShort(late.lateMinutes), eta: formatMinutesShort(ticket.eta_minutes) })
                               : ticket.status === "ready"
-                                ? `${ticket.eta_minutes}m estimate, finished`
-                                : `${late.leftMinutes}m left of ${ticket.eta_minutes}m`
-                            : "No estimate set"}
+                                ? t("kitchen.etaDone", { eta: formatMinutesShort(ticket.eta_minutes ?? 0) })
+                                : t("kitchen.etaLeft", { left: formatMinutesShort(late.leftMinutes ?? 0), eta: formatMinutesShort(ticket.eta_minutes ?? 0) })
+                            : t("orders.notSet")}
                         </span>
                         {late.late ? (
                           <span className="rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-inset ring-red-200">
-                            Delayed
+                            {t("kitchen.delayed")}
                           </span>
                         ) : null}
                       </div>
@@ -335,7 +339,7 @@ export function KitchenBoard({
                                 onClick={() => void toggleLine(ticket.id, line.id, line.prep_status)}
                                 disabled={busy !== null || ticket.status === "ready"}
                                 aria-pressed={done}
-                                title={done ? "Mark as not done" : "Mark this line done"}
+                                title={done ? t("kitchen.markUndone") : t("kitchen.markDone")}
                                 className={cx(
                                   "flex w-full items-start gap-2 rounded-md px-1 py-0.5 text-left transition hover:bg-ink-50 disabled:cursor-default",
                                   done && "opacity-50",
@@ -347,7 +351,7 @@ export function KitchenBoard({
                                     done ? "bg-moss-100 text-moss-700" : "bg-ink-100 text-ink-700",
                                   )}
                                 >
-                                  {line.quantity}
+                                  {formatNumber(line.quantity)}
                                 </span>
                                 <div className="min-w-0">
                                   <p className={cx("text-[13.5px] font-medium leading-snug text-ink-800", done && "line-through")}>

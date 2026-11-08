@@ -12,6 +12,7 @@
  * dish never requires a migration.
  */
 import { defaultLocale, type Locale } from "./config";
+import { toBengaliDigits } from "@/lib/format";
 
 interface HasBangla {
   name?: string | null;
@@ -36,6 +37,23 @@ export function localizedName(row: HasBangla, locale: Locale = defaultLocale): s
 export function localizedDescription(row: HasBangla, locale: Locale = defaultLocale): string | null {
   const value = pick(locale, row.description_bn, row.description);
   return value.length > 0 ? value : null;
+}
+
+/**
+ * A dining-table label, in Bengali.
+ *
+ * Table labels are tenant data, so a restaurant that typed "Balkon 3" keeps
+ * exactly that. The one pattern worth rewriting is the default the product itself
+ * creates — `Table 07` — which would otherwise be the last English word on an
+ * otherwise Bengali screen. Detection is narrow on purpose: only the exact
+ * generated shape is touched, so no real label is ever mangled.
+ */
+export function localizedTableLabel(label: string | null | undefined, locale: Locale = defaultLocale): string {
+  const raw = label?.trim() ?? "";
+  if (locale !== defaultLocale) return raw;
+  const match = /^table\s+(\d{1,3})$/i.exec(raw);
+  if (!match) return raw;
+  return `টেবিল ${toBengaliDigits((match[1] ?? "").padStart(2, "0"))}`;
 }
 
 /** The restaurant profile, localised the same way. */

@@ -18,6 +18,7 @@ import {
   CardHeader,
   EmptyState,
   LinkButton,
+  ORDER_STATUS_KEY,
   OrderStatusBadge,
   Stat,
   cx,
@@ -26,7 +27,10 @@ import { LiveOrders } from "@/components/dashboard/live-orders";
 import { redirect } from "next/navigation";
 import { requireTenant } from "@/lib/auth/server";
 import { getOverview } from "@/lib/services/overview";
-import { formatMoney, formatNumber, timeAgo, percent } from "@/lib/format";
+import { formatMoney, formatNumber, timeAgo, percent, formatLongDate, formatDay } from "@/lib/format";
+import { getTranslator } from "@/lib/i18n/server";
+import { localizedTableLabel } from "@/lib/i18n/content";
+import { localizedName } from "@/lib/i18n/content";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "সারসংক্ষেপ" };
@@ -61,6 +65,7 @@ export default async function DashboardPage({
     );
   }
 
+  const { t } = await getTranslator();
   const currency = tenant.currency;
   const today = overview.today;
   const isNew = Number(today.orders) === 0 && overview.menu_item_count === 0;
@@ -71,30 +76,30 @@ export default async function DashboardPage({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">
-              {greeting()}, {tenant.user.fullName?.split(" ")[0] ?? "there"}
+              {t("overview.greeting", { name: tenant.user.fullName?.split(" ")[0] ?? "" })}
             </h1>
-            {tenant.isDemo ? <Badge tone="clay">Demo tenant</Badge> : null}
+            {tenant.isDemo ? <Badge tone="clay">{t("tenant.demoBadge")}</Badge> : null}
           </div>
           <p className="mt-1 text-[13px] text-ink-500">
-            {formatDayLabel(overview.business_date)} · {overview.time_zone}
+            {formatLongDate(`${overview.business_date}T12:00:00Z`, "UTC")}
             {overview.pending_orders > 0 ? (
-              <span className="text-amber-700"> · {overview.pending_orders} order{overview.pending_orders === 1 ? "" : "s"} awaiting approval</span>
+              <span className="text-amber-700"> · {t("overview.pendingAction", { count: formatNumber(overview.pending_orders) })}</span>
             ) : null}
           </p>
         </div>
         <div className="flex gap-2">
           <LinkButton href="/dashboard/kitchen" variant="secondary" size="sm">
-            <ChefHat className="size-3.5" aria-hidden /> Kitchen display
+            <ChefHat className="size-3.5" aria-hidden /> {t("nav.kitchen")}
           </LinkButton>
           <LinkButton href="/dashboard/tables" size="sm">
-            <QrCode className="size-3.5" aria-hidden /> Tables &amp; QR
+            <QrCode className="size-3.5" aria-hidden /> {t("nav.tables")}
           </LinkButton>
         </div>
       </div>
 
       {params.denied ? (
         <div className="rounded-lg bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-900 ring-1 ring-inset ring-amber-200" role="alert">
-          Your role does not include access to {params.denied.split(",").join(" / ")}. Ask the owner if you need it.
+          {t("auth.forbidden")}
         </div>
       ) : null}
 
@@ -106,44 +111,43 @@ export default async function DashboardPage({
                 <UtensilsCrossed className="size-4" aria-hidden />
               </span>
               <div>
-                <p className="text-[14px] font-semibold text-ink-900">Your menu is empty — let's fix that first</p>
+                <p className="text-[14px] font-semibold text-ink-900">{t("menuAdmin.empty")}</p>
                 <p className="mt-0.5 max-w-xl text-[12.5px] leading-relaxed text-ink-600">
-                  Add your dishes with prices and photographs, then open the menu on your phone and place a test order
-                  from a table QR to see the whole flow.
+                  {t("menuAdmin.imageHint")}
                 </p>
               </div>
             </div>
-            <LinkButton href="/dashboard/menu" size="sm">Add your first dish</LinkButton>
+            <LinkButton href="/dashboard/menu" size="sm">{t("menuAdmin.addDish")}</LinkButton>
           </div>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
-          label="Today's orders"
+          label={t("overview.todayOrders")}
           value={formatNumber(Number(today.orders))}
-          hint={`${today.pending} pending · ${today.accepted} accepted`}
+          hint={t("overview.pendingAction", { count: formatNumber(today.pending) })}
           icon={<ClipboardList className="size-4" aria-hidden />}
           tone="neutral"
         />
         <Stat
-          label="Sales today"
+          label={t("overview.todayRevenue")}
           value={formatMoney(Number(today.revenue), currency)}
-          hint="Ready + served orders only"
+          hint={t("analytics.subtitle")}
           icon={<Coins className="size-4" aria-hidden />}
           tone="moss"
         />
         <Stat
-          label="Average order"
+          label={t("overview.avgOrder")}
           value={formatMoney(Number(today.avg_order_value), currency)}
-          hint={`${today.served} served today`}
+          hint={t("orders.tab.served")}
           icon={<TrendingUp className="size-4" aria-hidden />}
           tone="clay"
         />
         <Stat
-          label="In the kitchen now"
+          label={t("overview.kitchenQueue")}
           value={formatNumber(overview.active_kitchen)}
-          hint={`${today.ready} ready to run`}
+          hint={t("orders.tab.ready")}
           icon={<ChefHat className="size-4" aria-hidden />}
           tone="amber"
         />
@@ -160,11 +164,11 @@ export default async function DashboardPage({
 
         <Card>
           <CardHeader
-            title="Recent activity"
-            description="The last orders across every status."
+            title={t("overview.recentOrders")}
+            description={t("orders.tab.all")}
             action={
               <Link href="/dashboard/orders" className="inline-flex items-center gap-1 text-[12.5px] font-medium text-clay-700 hover:text-clay-800">
-                All orders <ArrowRight className="size-3" aria-hidden />
+                {t("overview.viewAll")} <ArrowRight className="size-3" aria-hidden />
               </Link>
             }
           />
@@ -173,8 +177,8 @@ export default async function DashboardPage({
               <EmptyState
                 compact
                 icon={<Clock3 className="size-4" aria-hidden />}
-                title="No orders yet"
-                description="Place a test order from a table QR to see the workflow end to end."
+                title={t("overview.noOrders")}
+                description={t("overview.noOrdersHint")}
               />
             ) : (
               <ul className="divide-y divide-ink-100">
@@ -183,11 +187,11 @@ export default async function DashboardPage({
                     <Link href={`/dashboard/orders/${order.id}`} className="flex items-center justify-between gap-3 py-2.5 hover:bg-ink-50/60">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-[12.5px] font-semibold text-ink-800">{order.table_label ?? "Counter"}</span>
-                          <OrderStatusBadge status={order.status} />
+                          <span className="text-[12.5px] font-semibold text-ink-800">{localizedTableLabel(order.table_label) ?? t("unit.table")}</span>
+                          <OrderStatusBadge status={order.status} label={t(ORDER_STATUS_KEY[order.status] ?? order.status)} />
                         </div>
                         <p className="truncate text-[11.5px] text-ink-400">
-                          {order.order_number} · {order.item_count} item{order.item_count === 1 ? "" : "s"} · {timeAgo(order.created_at)}
+                          {order.order_number} · {formatNumber(order.item_count)} {t("unit.items")} · {timeAgo(order.created_at)}
                         </p>
                       </div>
                       <span className="shrink-0 text-[12.5px] font-semibold tabular-nums text-ink-900">
@@ -205,17 +209,17 @@ export default async function DashboardPage({
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader
-            title="Popular dishes"
-            description="Ranked by quantity sold in the last 30 days."
+            title={t("analytics.topDishes")}
+            description={t("analytics.topDishesHint")}
             action={
               <Link href="/dashboard/analytics" className="inline-flex items-center gap-1 text-[12.5px] font-medium text-clay-700 hover:text-clay-800">
-                <BarChart3 className="size-3" aria-hidden /> Analytics
+                <BarChart3 className="size-3" aria-hidden /> {t("nav.analytics")}
               </Link>
             }
           />
           <CardBody className="pt-0">
             {overview.popular_items.length === 0 ? (
-              <EmptyState compact icon={<BarChart3 className="size-4" aria-hidden />} title="Not enough data yet" description="Popular dishes appear once you have accepted orders behind you." />
+              <EmptyState compact icon={<BarChart3 className="size-4" aria-hidden />} title={t("analytics.noData")} description={t("analytics.noDataHint")} />
             ) : (
               <ul className="space-y-2.5">
                 {overview.popular_items.map((item, index) => {
@@ -228,7 +232,7 @@ export default async function DashboardPage({
                           {item.name}
                         </p>
                         <p className="shrink-0 text-[11.5px] tabular-nums text-ink-500">
-                          {item.quantity} sold · {formatMoney(item.revenue, currency)}
+                          {t("analytics.soldCount", { count: formatNumber(item.quantity) })} · {formatMoney(item.revenue, currency)}
                         </p>
                       </div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-100">
@@ -244,17 +248,17 @@ export default async function DashboardPage({
 
         <Card>
           <CardHeader
-            title="Floor status"
-            description={`${overview.table_count} active tables`}
+            title={t("nav.tables")}
+            description={t("tables.count", { count: formatNumber(overview.table_count) })}
             action={
               <Link href="/dashboard/tables" className="text-[12.5px] font-medium text-clay-700 hover:text-clay-800">
-                Manage
+                {t("action.edit")}
               </Link>
             }
           />
           <CardBody className="pt-0">
             {overview.tables.length === 0 ? (
-              <EmptyState compact icon={<QrCode className="size-4" aria-hidden />} title="No tables yet" description="Add tables to generate QR codes." />
+              <EmptyState compact icon={<QrCode className="size-4" aria-hidden />} title={t("tables.empty")} description={t("tables.scanHint")} />
             ) : (
               <div className="grid grid-cols-4 gap-1.5">
                 {overview.tables.map((table) => (
@@ -264,11 +268,11 @@ export default async function DashboardPage({
                       "rounded-lg border px-1.5 py-2 text-center",
                       table.open_orders > 0 ? "border-clay-200 bg-clay-50" : "border-ink-200 bg-white",
                     )}
-                    title={`${table.label}${table.zone ? ` · ${table.zone}` : ""} — ${table.open_orders} open order(s)`}
+                    title={`${localizedTableLabel(table.label)}${table.zone ? ` · ${table.zone}` : ""} — ${formatNumber(table.open_orders)}`}
                   >
-                    <p className="text-[11.5px] font-semibold text-ink-800">{table.label.replace(/^Table\s*/i, "")}</p>
+                    <p className="text-[11.5px] font-semibold text-ink-800">{localizedTableLabel(table.label).replace(/^টেবিল\s*/, "")}</p>
                     <p className={cx("text-[10px]", table.open_orders > 0 ? "text-clay-700" : "text-ink-400")}>
-                      {table.open_orders > 0 ? `${table.open_orders} open` : "free"}
+                      {table.open_orders > 0 ? formatNumber(table.open_orders) : t("orders.empty")}
                     </p>
                   </div>
                 ))}
@@ -285,10 +289,9 @@ export default async function DashboardPage({
               <FlaskConical className="size-4" aria-hidden />
             </span>
             <div>
-              <p className="text-[13px] font-semibold text-ink-800">You are inside the demo tenant</p>
+              <p className="text-[13px] font-semibold text-ink-800">{t("demo.title")}</p>
               <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-500">
-                MATI Kitchen exists so you can explore the product with realistic data. Changes you make here stay in
-                this tenant — no other restaurant can see them, and nothing is shared with newly registered accounts.
+                {t("demo.subtitle")}
               </p>
             </div>
           </div>

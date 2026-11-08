@@ -232,7 +232,7 @@ export function DashboardShell({
           <span className="truncate text-[13px] font-semibold text-ink-900">{tenant.restaurantName}</span>
           {tenant.isDemo ? (
             <span className="ml-auto rounded-full bg-clay-50 px-2 py-0.5 text-[10.5px] font-medium text-clay-700 ring-1 ring-inset ring-clay-200">
-              {t("nav.demo")}
+              {t("tenant.demoBadge")}
             </span>
           ) : null}
         </header>

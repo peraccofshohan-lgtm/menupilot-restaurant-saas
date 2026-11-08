@@ -4,8 +4,10 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, Radio, RefreshCw } from "lucide-react";
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, OrderStatusBadge, cx } from "@/components/ui";
-import { formatMoney, timeAgo } from "@/lib/format";
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ORDER_STATUS_KEY, OrderStatusBadge, cx } from "@/components/ui";
+import { formatMoney, formatNumber, timeAgo } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import { localizedTableLabel } from "@/lib/i18n/content";
 import type { OrderSummary } from "@/lib/services/orders";
 import { useRealtimePulse } from "./realtime-bridge";
 
@@ -32,6 +34,7 @@ export function LiveOrders({
   compact?: boolean;
   canApprove: boolean;
 }) {
+  const t = useT();
   const [orders, setOrders] = React.useState<OrderSummary[]>([]);
   const [pending, setPending] = React.useState(initialPending);
   const [status, setStatus] = React.useState<"connecting" | "live" | "offline">("connecting");
@@ -106,7 +109,7 @@ export function LiveOrders({
   }, [load, transport]);
 
   async function decide(orderId: string, action: "accepted" | "rejected") {
-    if (action === "rejected" && !window.confirm("Reject this order? The guest will be told the kitchen could not take it.")) {
+    if (action === "rejected" && !window.confirm(t("orders.rejectConfirm"))) {
       return;
     }
     setBusyId(orderId);
@@ -119,14 +122,14 @@ export function LiveOrders({
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
       if (!data.ok) {
-        setError(data.error ?? "Could not update the order.");
+        setError(data.error ?? t("error.generic"));
       } else {
-        setAnnouncement(action === "accepted" ? "Order accepted and sent to the kitchen" : "Order rejected");
+        setAnnouncement(action === "accepted" ? t("status.accepted") : t("status.rejected"));
         await load();
         router.refresh();
       }
     } catch {
-      setError("Network problem — the order was not updated.");
+      setError(t("error.network"));
     } finally {
       setBusyId(null);
     }
@@ -137,16 +140,16 @@ export function LiveOrders({
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            Incoming orders
-            {pending > 0 ? <Badge tone="amber">{pending} waiting</Badge> : null}
+            {t("orders.incoming")}
+            {pending > 0 ? <Badge tone="amber">{formatNumber(pending)}</Badge> : null}
           </span>
         }
         description={
           status === "live"
-            ? `Live · synced ${lastSync ? timeAgo(lastSync) : "now"}`
+            ? t("orders.liveSynced", { when: lastSync ? timeAgo(lastSync) : t("orders.justNow") })
             : status === "connecting"
-              ? "Connecting to the live feed…"
-              : "Reconnecting… changes may be delayed"
+              ? t("orders.connecting")
+              : t("orders.reconnecting")
         }
         action={
           <div className="flex items-center gap-1.5">
@@ -157,13 +160,13 @@ export function LiveOrders({
               )}
             >
               <Radio className={cx("size-2.5", status === "live" && "animate-pulse")} aria-hidden />
-              {status === "live" ? "Live" : "Offline"}
+              {status === "live" ? t("orders.live") : t("orders.offline")}
             </span>
             <button
               type="button"
               onClick={() => void load()}
               className="grid size-7 place-items-center rounded-md text-ink-400 hover:bg-ink-100 hover:text-ink-700"
-              aria-label="Refresh orders now"
+              aria-label={t("orders.refresh")}
             >
               <RefreshCw className="size-3.5" aria-hidden />
             </button>
@@ -182,11 +185,11 @@ export function LiveOrders({
           <EmptyState
             compact
             icon={<Bell className="size-4" aria-hidden />}
-            title={status === "offline" ? "Live feed interrupted" : "No orders waiting for approval"}
+            title={status === "offline" ? t("orders.offlineTitle") : t("orders.emptyTitle")}
             description={
               status === "offline"
-                ? "We could not reach the server. This screen retries automatically every few seconds."
-                : "New guest orders appear here the moment they are placed, and only reach the kitchen once you accept them."
+                ? t("orders.offlineHint")
+                : t("orders.emptyHint")
             }
           />
         ) : (
@@ -197,13 +200,13 @@ export function LiveOrders({
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <Link href={`/dashboard/orders/${order.id}`} className="text-[13px] font-semibold text-ink-900 hover:text-clay-700">
-                        {order.table_label ?? "Counter"}
+                        {localizedTableLabel(order.table_label) || t("unit.counter")}
                       </Link>
                       <span className="text-[11.5px] text-ink-400">{order.order_number}</span>
-                      <OrderStatusBadge status={order.status} />
+                      <OrderStatusBadge status={order.status} label={t(ORDER_STATUS_KEY[order.status] ?? order.status)} />
                     </div>
                     <p className="mt-0.5 truncate text-[12px] text-ink-500">
-                      {order.item_count} item{order.item_count === 1 ? "" : "s"}
+                      {formatNumber(order.item_count)} {t("unit.items")}
                       {order.customer_name ? ` · ${order.customer_name}` : ""}
                       {order.note ? ` · “${order.note}”` : ""}
                     </p>
@@ -216,7 +219,7 @@ export function LiveOrders({
                 {canApprove ? (
                   <div className="mt-2.5 flex gap-2">
                     <Button size="sm" onClick={() => void decide(order.id, "accepted")} loading={busyId === order.id} className="flex-1">
-                      Accept &amp; send to kitchen
+                      {t("action.acceptOrder")}
                     </Button>
                     <Button
                       size="sm"
@@ -224,11 +227,11 @@ export function LiveOrders({
                       onClick={() => void decide(order.id, "rejected")}
                       disabled={busyId === order.id}
                     >
-                      Reject
+                      {t("action.rejectOrder")}
                     </Button>
                   </div>
                 ) : (
-                  <p className="mt-2 text-[11.5px] text-ink-400">Waiting for a manager to approve.</p>
+                  <p className="mt-2 text-[11.5px] text-ink-400">{t("orders.waitingApproval")}</p>
                 )}
               </li>
             ))}

@@ -184,20 +184,35 @@ export const ORDER_STATUS_TONE: Record<string, Tone> = {
   cancelled: "neutral",
 };
 
-export const ORDER_STATUS_LABEL: Record<string, string> = {
-  pending: "Pending approval",
-  accepted: "Accepted",
-  preparing: "Preparing",
-  ready: "Ready",
-  served: "Served",
-  rejected: "Rejected",
-  cancelled: "Cancelled",
+/**
+ * Status labels, in Bengali.
+ *
+ * Kept as a dictionary-key map rather than raw text because this badge appears on
+ * the orders list, the kitchen pass, the tracker and the detail page — one edit
+ * here translates every surface at once.
+ */
+export const ORDER_STATUS_KEY: Record<string, string> = {
+  pending: "status.pendingApproval",
+  accepted: "status.accepted",
+  preparing: "status.preparing",
+  ready: "status.ready",
+  served: "status.served",
+  rejected: "status.rejected",
+  cancelled: "status.cancelled",
 };
 
-export function OrderStatusBadge({ status }: { status: string }) {
+/**
+ * The label is required rather than optional on purpose.
+ *
+ * `components/ui` is shared by server and client components, so it cannot call a
+ * translation hook itself. When `label` was optional, one call site simply forgot
+ * it and the dashboard rendered the raw key `⟦status.pendingApproval⟧` to the
+ * owner. Requiring it makes that mistake a compile error instead of a visible bug.
+ */
+export function OrderStatusBadge({ status, label }: { status: string; label: string }) {
   return (
     <Badge tone={ORDER_STATUS_TONE[status] ?? "neutral"} dot>
-      {ORDER_STATUS_LABEL[status] ?? status}
+      {label}
     </Badge>
   );
 }

@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { BellRing, CircleCheck, Droplets, ReceiptText, Sparkles, UtensilsCrossed } from "lucide-react";
 import { Button, EmptyState, cx } from "@/components/ui";
 import type { ServiceRequestRow } from "@/lib/services/reviews";
+import { formatDuration, formatNumber } from "@/lib/format";
+import { useT } from "@/lib/i18n/client";
+import { localizedTableLabel } from "@/lib/i18n/content";
 
 const ICON = {
   waiter: BellRing,
@@ -14,12 +17,12 @@ const ICON = {
   other: Sparkles,
 } as const;
 
-const LABEL = {
-  waiter: "Call waiter",
-  water: "Water",
-  plate: "Extra plate",
-  bill: "Bill",
-  other: "Other",
+const LABEL_KEY = {
+  waiter: "service.callWaiter",
+  water: "service.water",
+  plate: "service.plate",
+  bill: "service.bill",
+  other: "service.other",
 } as const;
 
 function ageMinutes(iso: string, now: number) {
@@ -33,6 +36,7 @@ export function ServiceBoard({
   restaurantId: string;
   initial: ServiceRequestRow[];
 }) {
+  const t = useT();
   const router = useRouter();
   const [rows, setRows] = React.useState(initial);
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -74,11 +78,11 @@ export function ServiceBoard({
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
       if (!data.ok) {
-        setError(data.error ?? "That request could not be updated.");
+        setError(data.error ?? t("error.generic"));
         router.refresh();
       }
     } catch {
-      setError("Network problem — the request was not updated.");
+      setError(t("error.network"));
       router.refresh();
     } finally {
       setBusy(null);
@@ -93,8 +97,8 @@ export function ServiceBoard({
       <div className="rounded-[var(--radius-card)] border border-ink-200 bg-white py-16">
         <EmptyState
           icon={<BellRing className="size-5" aria-hidden />}
-          title="No requests in the last 12 hours"
-          description="When a guest asks for a waiter, water, a plate or the bill, it appears here."
+          title={t("serviceBoard.empty")}
+          description={t("serviceBoard.emptyHint")}
         />
       </div>
     );
@@ -110,12 +114,12 @@ export function ServiceBoard({
 
       <section>
         <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="text-[13px] font-semibold text-ink-900">Open</h2>
-          <span className="text-[12px] tabular-nums text-ink-500">{open.length}</span>
+          <h2 className="text-[13px] font-semibold text-ink-900">{t("serviceBoard.title")}</h2>
+          <span className="text-[12px] tabular-nums text-ink-500">{formatNumber(open.length)}</span>
         </div>
         {open.length === 0 ? (
           <p className="rounded-lg border border-dashed border-ink-200 py-8 text-center text-[12px] text-ink-400">
-            Everything has been handled.
+            {t("serviceBoard.empty")}
           </p>
         ) : (
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -137,9 +141,9 @@ export function ServiceBoard({
                         <Icon className="size-4" aria-hidden />
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-[13.5px] font-semibold text-ink-900">{LABEL[row.kind] ?? row.kind}</p>
+                        <p className="truncate text-[13.5px] font-semibold text-ink-900">{t(LABEL_KEY[row.kind] ?? "service.other")}</p>
                         <p className="text-[11px] text-ink-400">
-                          {row.table_label ?? "Table"}
+                          {localizedTableLabel(row.table_label) || t("unit.table")}
                           {row.order_number ? ` · ${row.order_number}` : ""}
                         </p>
                       </div>
@@ -150,7 +154,7 @@ export function ServiceBoard({
                         urgent ? "bg-red-50 text-red-700 ring-red-200" : "bg-ink-100 text-ink-600 ring-ink-200",
                       )}
                     >
-                      {minutes}m
+                      {formatDuration(minutes)}
                     </span>
                   </div>
 
@@ -159,15 +163,15 @@ export function ServiceBoard({
                   <div className="mt-2.5 flex gap-1.5">
                     {row.status === "pending" ? (
                       <Button size="sm" variant="secondary" onClick={() => void setStatus(row.id, "acknowledged")} loading={busy === row.id} className="flex-1">
-                        Acknowledge
+                        {t("serviceBoard.acknowledge")}
                       </Button>
                     ) : (
                       <span className="flex flex-1 items-center gap-1 text-[11px] font-medium text-moss-700">
-                        <CircleCheck className="size-3.5" aria-hidden /> On the way
+                        <CircleCheck className="size-3.5" aria-hidden /> {t("serviceBoard.acknowledged")}
                       </span>
                     )}
                     <Button size="sm" onClick={() => void setStatus(row.id, "completed")} loading={busy === row.id} className="flex-1">
-                      Done
+                      {t("serviceBoard.complete")}
                     </Button>
                   </div>
                 </li>
@@ -179,7 +183,7 @@ export function ServiceBoard({
 
       {closed.length > 0 ? (
         <section>
-          <h2 className="mb-2 text-[13px] font-semibold text-ink-900">Recently handled</h2>
+          <h2 className="mb-2 text-[13px] font-semibold text-ink-900">{t("serviceBoard.completed")}</h2>
           <ul className="divide-y divide-ink-100 rounded-[var(--radius-card)] border border-ink-200 bg-white">
             {closed.slice(0, 12).map((row) => {
               const Icon = ICON[row.kind] ?? Sparkles;
@@ -188,11 +192,11 @@ export function ServiceBoard({
                   <span className="flex min-w-0 items-center gap-2">
                     <Icon className="size-3.5 shrink-0 text-ink-400" aria-hidden />
                     <span className="truncate text-[12px] text-ink-700">
-                      {LABEL[row.kind] ?? row.kind} · {row.table_label ?? "Table"}
+                      {t(LABEL_KEY[row.kind] ?? "service.other")} · {localizedTableLabel(row.table_label) || t("unit.table")}
                     </span>
                   </span>
                   <span className="shrink-0 text-[11px] text-ink-400">
-                    {row.status === "completed" ? "Completed" : "Cancelled"} · {ageMinutes(row.created_at, now)}m ago
+                    {row.status === "completed" ? t("serviceBoard.completed") : t("status.cancelled")} · {formatDuration(ageMinutes(row.created_at, now))}
                   </span>
                 </li>
               );

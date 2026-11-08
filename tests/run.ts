@@ -14,6 +14,9 @@ import { NOTE_LIMIT, NOTE_PRESETS, appendNote } from "../src/components/customer
 import { mapServiceError } from "../src/lib/services/errors";
 import { previewDemoReset, resetDemoOrders } from "../src/lib/services/demo-reset";
 import { etaState, friendlyReviewError } from "../src/lib/services/reviews";
+import { bnDictionary } from "../src/lib/i18n/messages/bn";
+import { createTranslator, interpolate } from "../src/lib/i18n/translator";
+import { localizedName, localizedTableLabel } from "../src/lib/i18n/content";
 
 type TestFn = () => Promise<void> | void;
 interface Test {
@@ -995,6 +998,83 @@ describe("error copy", () => {
     const unknown = mapServiceError(new Error("connect ECONNREFUSED 127.0.0.1:5432"));
     assertEquals(unknown.status, 500, "infrastructure errors become a 500");
     assert(!unknown.message.includes("ECONNREFUSED"), "driver errors stay server-side");
+  });
+});
+
+/* ==========================================================================
+   Bengali interface copy
+   ========================================================================== */
+
+describe("Bengali dictionary", () => {
+  it("has no placeholder that a call site cannot fill", () => {
+    // A template like "{name}" with a typo would print the brace to a guest.
+    for (const [key, value] of Object.entries(bnDictionary.messages)) {
+      const placeholders = [...value.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+      for (const name of placeholders) {
+        assert(/^[a-z][a-zA-Z]*$/.test(String(name)), `${key}: placeholder {${name}} is malformed`);
+      }
+      assert(!value.includes("⟦"), `${key}: dictionary must not contain a raw-key marker`);
+    }
+  });
+
+  it("never leaves an empty string where a label belongs", () => {
+    for (const [key, value] of Object.entries(bnDictionary.messages)) {
+      assert(value.trim().length > 0, `${key} is blank`);
+    }
+  });
+
+  it("uses Bengali digits in copy, and Latin only where an identifier is meant", () => {
+    // Three things stay in Latin numerals on purpose: order numbers and QR
+    // tokens (guests read them aloud and type them back), and phone numbers,
+    // whose shape is a literal the guest must copy — "০১৭XXXXXXXX" would be
+    // wrong for the mobile network even though it reads naturally.
+    const latinDigitsUntilKeyword = Object.entries(bnDictionary.messages).filter(
+      ([key, value]) => /\d/.test(value) && !/(reference|tracking|order\.number|qr|phone)/.test(key),
+    );
+    for (const [key, value] of latinDigitsUntilKeyword) {
+      assert(!/[0-9]/.test(value), `${key} still uses Latin digits: ${value}`);
+    }
+  });
+
+  it("keeps every role label present, because nav and staff both index into it", () => {
+    for (const role of ["owner", "manager", "kitchen", "waiter", "service", "admin"]) {
+      const key = `staff.role.${role}`;
+      assert(key in bnDictionary.messages, `${key} is missing`);
+    }
+  });
+
+  it("resolves a translator without a registered dictionary", () => {
+    // Guards the regression that made every page a 500: importing the runtime
+    // must be enough to have Bengali available.
+    const translator = createTranslator("bn");
+    assertEquals(translator.locale, "bn", "translator is Bengali");
+    assertEquals(translator.htmlLang, "bn-BD", "html lang is Bengali");
+    assert(translator.t("nav.orders").length > 0, "a known key resolves");
+    assert(!translator.t("nav.orders").includes("⟦"), "a known key is not a raw marker");
+  });
+
+  it("fills placeholders and leaves unknown ones untouched", () => {
+    assertEquals(interpolate("{a} ও {b}", { a: "১", b: "২" }), "১ ও ২", "both filled");
+    assertEquals(interpolate("{a} {missing}", { a: "১" }), "১ {missing}", "unknown stays visible");
+    // A dish called "{admin}" must render as text, never be treated as a value.
+    assertEquals(interpolate("নাম {admin}", { admin: "x" }), "নাম x", "lookalikes are plain text");
+  });
+});
+
+describe("localised data", () => {
+  it("prefers Bengali content and falls back to English rather than blank", () => {
+    assertEquals(localizedName({ name: "Beef Bhuna", name_bn: "বিফ ভুনা" }), "বিফ ভুনা", "Bengali wins");
+    assertEquals(localizedName({ name: "Beef Bhuna", name_bn: null }), "Beef Bhuna", "English fallback");
+    assertEquals(localizedName({ name: "Beef Bhuna", name_bn: "   " }), "Beef Bhuna", "whitespace is not content");
+    assertEquals(localizedName({ name: null, name_bn: null }), "", "nothing to show stays empty");
+  });
+
+  it("localises the product's own table labels but never a restaurant's own words", () => {
+    assertEquals(localizedTableLabel("Table 01"), "টেবিল ০১", "generated label is translated");
+    assertEquals(localizedTableLabel("Table 7"), "টেবিল ০৭", "padding is normalised");
+    assertEquals(localizedTableLabel("Balkon 3"), "Balkon 3", "a real name is left alone");
+    assertEquals(localizedTableLabel("টেবিল ০৫"), "টেবিল ০৫", "already Bengali is untouched");
+    assertEquals(localizedTableLabel(null), "", "null is safe");
   });
 });
 

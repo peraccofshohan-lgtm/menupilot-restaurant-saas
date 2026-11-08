@@ -4,8 +4,10 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChefHat, CircleCheck, CircleSlash, Clock3, Truck, X } from "lucide-react";
 import { Button, cx } from "@/components/ui";
+import { formatMinutesShort } from "@/lib/format";
 import type { OrderStatus } from "@/lib/services/orders";
 import type { TenantRole } from "@/lib/auth/server";
+import { useT } from "@/lib/i18n/client";
 
 /**
  * Role-aware lifecycle controls.
@@ -13,11 +15,11 @@ import type { TenantRole } from "@/lib/auth/server";
  * The button set is derived from the same transition table the database enforces;
  * hiding a button is a convenience, never the security boundary.
  */
-const NEXT_STEP: Partial<Record<OrderStatus, { next: OrderStatus; label: string; icon: React.ComponentType<{ className?: string }> }>> = {
-  pending: { next: "accepted", label: "Accept order", icon: Check },
-  accepted: { next: "preparing", label: "Start preparing", icon: ChefHat },
-  preparing: { next: "ready", label: "Mark ready", icon: CircleCheck },
-  ready: { next: "served", label: "Mark served", icon: Truck },
+const NEXT_STEP: Partial<Record<OrderStatus, { next: OrderStatus; labelKey: string; icon: React.ComponentType<{ className?: string }> }>> = {
+  pending: { next: "accepted", labelKey: "action.acceptOrder", icon: Check },
+  accepted: { next: "preparing", labelKey: "action.startPreparing", icon: ChefHat },
+  preparing: { next: "ready", labelKey: "action.markReady", icon: CircleCheck },
+  ready: { next: "served", labelKey: "action.markServed", icon: Truck },
 };
 
 const ALLOWED: Record<string, TenantRole[]> = {
@@ -66,13 +68,13 @@ export function OrderActions({
         body: JSON.stringify({ orderId, restaurantId, minutes }),
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
-      if (!data.ok) setError(data.error ?? "The estimate could not be changed.");
+      if (!data.ok) setError(data.error ?? t("error.generic"));
       else {
         setEditingEta(false);
         router.refresh();
       }
     } catch {
-      setError("Network problem — the estimate was not changed.");
+      setError(t("error.network"));
     } finally {
       setBusy(null);
     }
@@ -88,7 +90,7 @@ export function OrderActions({
         body: JSON.stringify({ orderId, next, restaurantId, reason: rejectionReason, etaMinutes: eta ?? null }),
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
-      if (!data.ok) setError(data.error ?? "Could not update this order.");
+      if (!data.ok) setError(data.error ?? t("error.generic"));
       else {
         setShowReject(false);
         setShowAccept(false);
@@ -97,12 +99,13 @@ export function OrderActions({
         router.refresh();
       }
     } catch {
-      setError("Network problem — the order was not updated.");
+      setError(t("error.network"));
     } finally {
       setBusy(null);
     }
   }
 
+  const t = useT();
   const primary = NEXT_STEP[status];
   const canAdvance = primary && ALLOWED[primary.next]?.includes(role);
   const canReject = status === "pending" && ALLOWED.rejected?.includes(role);
@@ -114,8 +117,8 @@ export function OrderActions({
     return (
       <p className={cx("text-[12px] text-ink-400", fullWidth && "text-center")}>
         {["served", "rejected", "cancelled"].includes(status)
-          ? "This order is closed."
-          : "Your role cannot change this order."}
+          ? t("orders.closed")
+          : t("orders.noPermission")}
       </p>
     );
   }
@@ -142,12 +145,12 @@ export function OrderActions({
             className={fullWidth ? "flex-1" : undefined}
           >
             {busy !== primary.next ? <primary.icon className="size-3.5" aria-hidden /> : null}
-            {primary.label}
+            {t(primary.labelKey)}
           </Button>
         ) : null}
         {canReject ? (
           <Button size={size} variant="secondary" onClick={() => setShowReject((open) => !open)} disabled={busy !== null}>
-            <X className="size-3.5" aria-hidden /> Reject
+            <X className="size-3.5" aria-hidden /> {t("status.rejected")}
           </Button>
         ) : null}
         {canCancel ? (
@@ -155,19 +158,19 @@ export function OrderActions({
             size={size}
             variant="ghost"
             onClick={() => {
-              if (window.confirm("Cancel this order? This cannot be undone.")) void run("cancelled");
+              if (window.confirm(t("orders.cancelConfirm"))) void run("cancelled");
             }}
             loading={busy === "cancelled"}
             disabled={busy !== null}
           >
-            <CircleSlash className="size-3.5" aria-hidden /> Cancel
+            <CircleSlash className="size-3.5" aria-hidden /> {t("action.cancel")}
           </Button>
         ) : null}
       </div>
 
       {showAccept && status === "pending" ? (
         <div className="rounded-lg border border-clay-200 bg-clay-50/60 p-2.5">
-          <p className="text-[11.5px] font-medium text-ink-700">Preparation time to tell the guest</p>
+          <p className="text-[11.5px] font-medium text-ink-700">{t("orders.etaPrompt")}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {[10, 15, 20, 25, 30, 45].map((minutes) => (
               <button
@@ -181,7 +184,7 @@ export function OrderActions({
                     : "border-ink-200 bg-white text-ink-700 hover:border-clay-300",
                 )}
               >
-                {minutes}m
+                {formatMinutesShort(minutes)}
               </button>
             ))}
             <input
@@ -190,17 +193,17 @@ export function OrderActions({
               max={240}
               value={etaMinutes}
               onChange={(event) => setEtaMinutes(Math.max(1, Math.min(240, Number(event.target.value) || 1)))}
-              aria-label="Preparation time in minutes"
+              aria-label={t("orders.etaPrompt")}
               className="w-16 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11.5px] tabular-nums text-ink-800 focus:border-clay-500 focus:outline-none"
             />
           </div>
           <p className="mt-1.5 text-[10.5px] leading-relaxed text-ink-500">
-            The guest sees “{etaMinutes} minutes”. This is an estimate — the kitchen still decides when it is ready.
+            {t("orders.etaHint", { count: formatMinutesShort(etaMinutes) })}
           </p>
           <div className="mt-2 flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setShowAccept(false)}>Not yet</Button>
+            <Button size="sm" variant="ghost" onClick={() => setShowAccept(false)}>{t("action.notYet")}</Button>
             <Button size="sm" onClick={() => void run("accepted", undefined, etaMinutes)} loading={busy === "accepted"}>
-              Accept · {etaMinutes} min
+              {t("action.acceptOrder")} · {formatMinutesShort(etaMinutes)}
             </Button>
           </div>
         </div>
@@ -211,7 +214,7 @@ export function OrderActions({
           {editingEta ? (
             <div className="rounded-lg border border-ink-200 bg-ink-50 p-2.5">
               <label htmlFor={`eta-${orderId}`} className="text-[11.5px] font-medium text-ink-600">
-                Tell the guest a new preparation time
+                {t("orders.etaNewPrompt")}
               </label>
               <div className="mt-1 flex items-center gap-2">
                 <input
@@ -223,18 +226,18 @@ export function OrderActions({
                   onChange={(event) => setEtaMinutes(Math.max(1, Math.min(240, Number(event.target.value) || 1)))}
                   className="w-20 rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] tabular-nums text-ink-800 focus:border-clay-500 focus:outline-none"
                 />
-                <span className="text-[11.5px] text-ink-500">minutes from when cooking started</span>
+                <span className="text-[11.5px] text-ink-500">{t("orders.etaUnits")}</span>
               </div>
               <div className="mt-2 flex justify-end gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setEditingEta(false)}>Cancel</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditingEta(false)}>{t("action.cancel")}</Button>
                 <Button size="sm" onClick={() => void updateEta(etaMinutes)} loading={busy === "eta"}>
-                  Update estimate
+                  {t("action.save")}
                 </Button>
               </div>
             </div>
           ) : (
             <Button size="sm" variant="ghost" onClick={() => setEditingEta(true)} disabled={busy !== null}>
-              <Clock3 className="size-3.5" aria-hidden /> {etaCurrent ? `Estimate ${etaCurrent} min` : "Set estimate"}
+              <Clock3 className="size-3.5" aria-hidden /> {etaCurrent ? t("orders.etaPrompt") : t("orders.etaUnits")}
             </Button>
           )}
         </div>
@@ -243,20 +246,20 @@ export function OrderActions({
       {showReject ? (
         <div className="rounded-lg border border-ink-200 bg-ink-50 p-2.5">
           <label htmlFor={`reason-${orderId}`} className="text-[11.5px] font-medium text-ink-600">
-            Reason (shown to the guest)
+            {t("orders.rejectReason")}
           </label>
           <input
             id={`reason-${orderId}`}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="Kitchen is closing, item sold out…"
+            placeholder={t("orders.rejectPlaceholder")}
             className="mt-1 w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-800 focus:border-clay-500 focus:outline-none focus:ring-2 focus:ring-clay-500/25"
             maxLength={200}
           />
           <div className="mt-2 flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setShowReject(false)}>Keep it</Button>
+            <Button size="sm" variant="ghost" onClick={() => setShowReject(false)}>{t("action.notYet")}</Button>
             <Button size="sm" variant="danger" onClick={() => void run("rejected", reason)} loading={busy === "rejected"}>
-              Reject order
+              {t("action.rejectOrder")}
             </Button>
           </div>
         </div>
