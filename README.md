@@ -97,6 +97,9 @@ Guest flows to try:
 | `npm run db:seed -- --reset` | Rebuild the demo tenant from scratch |
 | `npm run db:reset` | Delete the embedded database directory |
 | `npm run test:security` | Security audit suite only (pre-deploy gate) |
+| `npm run test:security:remote` | Same audit against a real project (`MENUPILOT_TEST_EXTERNAL=1`) |
+| `npm run test:gotrue` | Apply all migrations to a GoTrue-shaped database (11 checks) |
+| `npm run smoke` | 29 checks against a running deployment over HTTP |
 | `npm run storage:setup` | Create Supabase buckets and verify schema (needs credentials) |
 | `npm run db:status` | Verify a Supabase project without changing it |
 | `npm run storage:gc` | Report (or `--delete`) unreferenced media objects |
@@ -121,7 +124,7 @@ Browser ──► Next.js App Router (server components + server actions + route
 
 Full detail: [`ARCHITECTURE.md`](./ARCHITECTURE.md) · schema: [`DATABASE.md`](./DATABASE.md) ·
 security model: [`SECURITY.md`](./SECURITY.md) · setup: [`SETUP.md`](./SETUP.md) ·
-deployment: [`SUPABASE.md`](./SUPABASE.md) (Supabase + Vercel runbook) and [`DEPLOYMENT.md`](./DEPLOYMENT.md).
+deployment: [`DEPLOY-HANDOFF.md`](./DEPLOY-HANDOFF.md) (first-deployment runbook) · [`SUPABASE.md`](./SUPABASE.md) · [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 ---
 

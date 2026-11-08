@@ -87,7 +87,11 @@ are used, which is why `npm test` exercises the exact production code path.
 DATABASE_URL="…" npx tsx scripts/supabase-setup.ts --check
 ```
 
+`--check` writes nothing: it compares the applied set against the files on disk
+instead of calling the migration runner.
+
 ```
+✓ all 12 migrations applied
 ✓ schema complete (Postgres 15.x)
 ✓ auth schema managed by GoTrue: yes
 · tenants: 0 · demo dishes: 0 · demo tables: 0
@@ -332,6 +336,17 @@ Copy this into the release PR.
 | Realtime subscription | token minting + tenant claims tested | **yes** (live socket) |
 | Production build (45 routes) | yes | — |
 
-Anything marked **yes** in the last column is untested today. Running section 1.4
-followed by `npm run test:security` with `DATABASE_URL` set closes the three
-database rows in one command.
+Anything marked **yes** in the last column is untested today.
+
+Two things now close most of that gap:
+
+- `npm run test:gotrue` builds a database shaped like a Supabase project — `auth`
+  owned by GoTrue's role, GoTrue's `auth.users` columns, `auth.sessions` with its
+  unrelated shape — and applies all 12 migrations plus the identity functions to it.
+  It caught three real defects that no local test could see.
+- `MENUPILOT_TEST_EXTERNAL=1 DATABASE_URL=… npm run test:security:remote` runs the
+  audit against a live project. Note that `DATABASE_URL` **alone** does not retarget
+  the suite: without the flag it deliberately uses a throwaway database, and with the
+  flag but an unmigrated target it refuses to run rather than create anything.
+
+The short version of the deployment order is [`DEPLOY-HANDOFF.md`](./DEPLOY-HANDOFF.md).
