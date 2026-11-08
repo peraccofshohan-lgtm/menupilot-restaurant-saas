@@ -25,6 +25,8 @@ export interface DemoResetPreview {
   orderItems: number;
   statusHistory: number;
   customers: number;
+  reviews: number;
+  serviceRequests: number;
   openOrders: number;
   protected: {
     categories: number;
@@ -41,7 +43,14 @@ export type DemoResetErrorCode =
   | "unavailable";
 
 export interface DemoResetResult {
-  deleted: { orders: number; orderItems: number; statusHistory: number; customers: number };
+  deleted: {
+    orders: number;
+    orderItems: number;
+    statusHistory: number;
+    customers: number;
+    reviews: number;
+    serviceRequests: number;
+  };
   kept: DemoResetPreview["protected"];
 }
 
@@ -50,6 +59,8 @@ interface RawCounts {
   order_items: number;
   status_history: number;
   customers: number;
+  reviews: number;
+  service_requests: number;
   open_orders: number;
   categories: number;
   menu_items: number;
@@ -66,6 +77,8 @@ async function loadCounts(tx: Queryable, restaurantId: string): Promise<RawCount
           join public.orders o on o.id = h.order_id
          where o.restaurant_id = $1)::int as status_history,
        (select count(*) from public.customers where restaurant_id = $1)::int as customers,
+       (select count(*) from public.order_reviews where restaurant_id = $1)::int as reviews,
+       (select count(*) from public.service_requests where restaurant_id = $1)::int as service_requests,
        (select count(*) from public.orders
          where restaurant_id = $1
            and status in ('pending','accepted','preparing','ready'))::int as open_orders,
@@ -112,6 +125,8 @@ export async function previewDemoReset(
           orderItems: c.order_items,
           statusHistory: c.status_history,
           customers: c.customers,
+          reviews: c.reviews,
+          serviceRequests: c.service_requests,
           openOrders: c.open_orders,
           protected: {
             categories: c.categories,
@@ -142,25 +157,31 @@ export async function resetDemoOrders(
 ): Promise<{ ok: true; result: DemoResetResult } | { ok: false; error: DemoResetErrorCode }> {
   try {
     return await withSession(asUser(userId), async (tx) => {
-      const res = await tx.query<{ out: { before: Record<string, number>; after: Record<string, number> } }>(
+      // 017 returns { deleted, kept } — the counts the function actually removed
+      // and re-verified, not a caller-side recount.
+      const res = await tx.query<{ out: { deleted: Record<string, number>; kept: Record<string, number> } }>(
         "select public.reset_demo_orders($1, $2, $3) as out",
         [restaurantId, expectedOrders, confirmPhrase],
       );
       const out = res.rows[0]!.out;
+      const d = out.deleted ?? {};
+      const k = out.kept ?? {};
       return {
         ok: true as const,
         result: {
           deleted: {
-            orders: out.before.orders ?? 0,
-            orderItems: out.before.orderItems ?? 0,
-            statusHistory: out.before.statusHistory ?? 0,
-            customers: out.before.customers ?? 0,
+            orders: d.orders ?? 0,
+            orderItems: d.orderItems ?? 0,
+            statusHistory: d.statusHistory ?? 0,
+            customers: d.customers ?? 0,
+            reviews: d.reviews ?? 0,
+            serviceRequests: d.serviceRequests ?? 0,
           },
           kept: {
-            categories: out.after.categories ?? 0,
-            menuItems: out.after.menuItems ?? 0,
-            diningTables: out.after.diningTables ?? 0,
-            qrTokens: out.after.qrTokens ?? 0,
+            categories: k.categories ?? 0,
+            menuItems: k.menuItems ?? 0,
+            diningTables: k.diningTables ?? 0,
+            qrTokens: k.qrTokens ?? 0,
           },
         },
       };

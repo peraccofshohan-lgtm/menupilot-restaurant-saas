@@ -30,6 +30,30 @@ const REJECT_REASON = "Table requested a change and placed a new order.";
 const NOTES = [null, null, null, "Less oil, please.", "One portion extra spicy.", "No chilli on the kids' plate.", "Please serve the drinks first.", "Allergy note: no peanuts."];
 const ITEM_NOTES = [null, null, null, "Extra gravy on the side", "No onion", "Well done"];
 
+const ETA_CHOICES = [10, 15, 20, 20, 25, 30, 45];
+
+const GOOD_COMMENTS = [
+  "The beef bhuna was exactly right — deep, slow-cooked flavour.",
+  "Came out hot and fast. Will order again.",
+  "Portion was generous for the price.",
+  "Best kacchi I have had in Dhanmondi.",
+  "Lovely presentation, and the staff were kind.",
+];
+const MIXED_COMMENTS = [
+  "Tasty, but the wait was longer than I expected.",
+  "Good food, slightly under-seasoned for me.",
+  "Nice atmosphere; service got slow once it filled up.",
+  null,
+];
+const VISIT_COMMENTS = [
+  "Warm welcome, quick service, clean tables.",
+  "Lovely evening. The team checked on us without hovering.",
+  "Food great, ambience great, will bring family next time.",
+];
+const ITEM_SUB = { taste: [4, 5, 5], quality: [4, 5], presentation: [3, 4, 5] };
+const VISIT_SUB = { service: [4, 5], staff: [4, 5], cleanliness: [4, 5] };
+const REQUEST_KINDS = ["waiter", "water", "plate", "bill"] as const;
+
 const GUESTS = [
   { name: "Nusrat Jahan", phone: "+8801711000011" },
   { name: "Arif Hossain", phone: "+8801711000022" },
@@ -176,14 +200,18 @@ async function main() {
         `insert into public.orders
            (restaurant_id, table_id, customer_id, order_number, status, subtotal, tax_amount,
             service_charge, total, currency, item_count, customer_name, customer_phone, note,
-            source, tracking_token, accepted_at, preparing_at, ready_at,
+            source, tracking_token, eta_minutes, eta_set_at, eta_revisions,
+            accepted_at, preparing_at, ready_at,
             served_at, rejected_at, cancelled_at, rejection_reason, created_at, updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'qr',$15,
-                 $16,$17,$18,$19,$20,$21,$22,$23,$23)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'qr',$15,$16,$17,1,
+                 $18,$19,$20,$21,$22,$23,$24,$25,$25)
          returning id`,
         [
           r.id, table.id, customerId, orderNumber, status, subtotal, tax, service, total,
           r.currency || "BDT", itemCount, customerName, customerPhone, pick(NOTES), tracking,
+          // A promise only exists once the order was accepted.
+          acceptedAt ? pick(ETA_CHOICES) : null,
+          acceptedAt,
           acceptedAt, preparingAt, readyAt, servedAt, rejectedAt, cancelledAt,
           status === "rejected" ? REJECT_REASON : null, createdAt,
         ],
@@ -216,6 +244,74 @@ async function main() {
         );
       }
 
+      // ---- Reviews, only where the rules allow them ------------------------
+      // A review needs a served visit. Generating them any other way would put
+      // demo data in the tables that contradicts the product's own eligibility
+      // rule, and the tests would then be checking a fiction.
+      if (status === "served" && servedAt && rand() < 0.55) {
+        const reviewable = lines.slice(0, Math.max(1, Math.ceil(lines.length / 2)));
+        for (const line of reviewable) {
+          const good = rand() < 0.8;
+          await db.query(
+            `insert into public.order_reviews
+               (restaurant_id, order_id, target_kind, menu_item_id, rating, comment,
+                score_taste, score_quality, score_presentation, created_at)
+             values ($1,$2,'item',$3,$4,$5,$6,$7,$8,$9)
+             on conflict do nothing`,
+            [
+              r.id, orderId, line.id,
+              good ? (rand() < 0.6 ? 5 : 4) : 2,
+              good ? pick(GOOD_COMMENTS) : pick(MIXED_COMMENTS),
+              good ? pick(ITEM_SUB.taste) : 2,
+              good ? pick(ITEM_SUB.quality) : 3,
+              good ? pick(ITEM_SUB.presentation) : 2,
+              new Date(servedAt.getTime() + 15 * 60_000),
+            ],
+          );
+        }
+        if (rand() < 0.5) {
+          const good = rand() < 0.85;
+          await db.query(
+            `insert into public.order_reviews
+               (restaurant_id, order_id, target_kind, rating, comment,
+                score_service, score_staff, score_cleanliness, created_at)
+             values ($1,$2,'restaurant',$3,$4,$5,$6,$7,$8)
+             on conflict do nothing`,
+            [
+              r.id, orderId,
+              good ? (rand() < 0.7 ? 5 : 4) : 2,
+              good ? pick(VISIT_COMMENTS) : pick(MIXED_COMMENTS),
+              good ? pick(VISIT_SUB.service) : 3,
+              good ? pick(VISIT_SUB.staff) : 3,
+              good ? pick(VISIT_SUB.cleanliness) : 2,
+              new Date(servedAt.getTime() + 20 * 60_000),
+            ],
+          );
+        }
+      }
+
+      // ---- Open service requests, only on live tables ----------------------
+      // Today's live tickets always have one request so the service board has
+      // something real to show; older days get none, because a request from
+      // yesterday is an unanswered guest, not demo data.
+      if (isToday && ["accepted", "preparing", "ready"].includes(status)) {
+        const stateRoll = rand();
+        const requestStatus = stateRoll < 0.5 ? "pending" : stateRoll < 0.75 ? "acknowledged" : "completed";
+        await db.query(
+          `insert into public.service_requests
+             (restaurant_id, table_id, order_id, kind, status, tracking_token_sha256,
+              acknowledged_at, completed_at, created_at)
+           values ($1,$2,$3,$4,$5,public.mp_sha256($6),$7,$8,$9)
+           on conflict do nothing`,
+          [
+            r.id, table.id, orderId, pick([...REQUEST_KINDS]), requestStatus, tracking,
+            requestStatus === "pending" ? null : new Date(createdAt.getTime() + 3 * 60_000),
+            requestStatus === "completed" ? new Date(createdAt.getTime() + 8 * 60_000) : null,
+            new Date(createdAt.getTime() + 4 * 60_000),
+          ],
+        );
+      }
+
       if (customerId && ["ready", "served"].includes(status)) {
         await db.query(
           `update public.customers set
@@ -244,6 +340,13 @@ async function main() {
   console.log(`\n  ${r.name} — order history rebuilt`);
   console.log(`    written    : ${written} orders`);
   console.log(`    total now  : ${a.orders} orders`);
+  const extra = await db.query<{ reviews: number; requests: number }>(
+    `select
+       (select count(*) from public.order_reviews where restaurant_id = $1)::int reviews,
+       (select count(*) from public.service_requests where restaurant_id = $1)::int requests`,
+    [r.id],
+  );
+  console.log(`    reviews    : ${extra.rows[0]!.reviews} · service requests: ${extra.rows[0]!.requests}`);
   console.log(`    untouched  : ${a.items} dishes · ${a.tables} tables · ${a.tokens} QR codes`);
   console.log(`    menu       : /menu/${r.slug}\n`);
 }

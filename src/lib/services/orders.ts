@@ -63,6 +63,8 @@ export interface OrderSummary {
   rejected_at: string | null;
   rejection_reason: string | null;
   payment_status: string;
+  eta_minutes: number | null;
+  eta_set_at: string | null;
 }
 
 export interface OrderLine {
@@ -92,7 +94,8 @@ const SUMMARY_COLUMNS = `
   o.id, o.order_number, o.status, o.total, o.subtotal, o.tax_amount, o.service_charge,
   o.currency, o.item_count, o.customer_name, o.customer_phone, o.note,
   d.label as table_label, o.created_at, o.accepted_at, o.preparing_at, o.ready_at,
-  o.served_at, o.rejected_at, o.rejection_reason, o.payment_status`;
+  o.served_at, o.rejected_at, o.rejection_reason, o.payment_status,
+  o.eta_minutes, o.eta_set_at`;
 
 export async function listOrders(
   user: AppUser,
@@ -222,15 +225,25 @@ export async function transitionOrder(
   orderId: string,
   next: OrderStatus,
   reason?: string,
+  options: { etaMinutes?: number | null } = {},
 ): Promise<TransitionResult> {
   if (!isUuid(orderId)) return { ok: false, error: "Unknown order." };
   if (!ORDER_STATUSES.includes(next)) return { ok: false, error: "Unknown status." };
+  const eta = options.etaMinutes ?? null;
+  if (eta !== null && (!Number.isInteger(eta) || eta < 1 || eta > 240)) {
+    return { ok: false, error: "Choose a preparation time between 1 and 240 minutes." };
+  }
+  if (eta !== null && next !== "accepted") {
+    return { ok: false, error: "A preparation time can only be set when accepting an order." };
+  }
 
   try {
     return await asAuthed(user, async (tx) => {
+      // Transition and estimate are one unit of work: an order must never end up
+      // accepted without the promise the guest was shown.
       const res = await tx.query<{ result: { status: string } }>(
-        "select public.transition_order($1, $2, $3) as result",
-        [orderId, next, reason ?? null],
+        "select public.transition_order($1, $2, $3, $4) as result",
+        [orderId, next, reason ?? null, eta],
       );
       return { ok: true, status: res.rows[0]?.result.status };
     });
@@ -285,10 +298,19 @@ export interface KitchenTicket {
   accepted_at: string;
   preparing_at: string | null;
   ready_at: string | null;
+  /** The estimate promised to the guest, if the owner set one. */
+  eta_minutes: number | null;
+  eta_set_at: string | null;
   note: string | null;
   customer_name: string | null;
   item_count: number;
-  items: { id: string; name: string; quantity: number; note: string | null }[];
+  items: {
+    id: string;
+    name: string;
+    quantity: number;
+    note: string | null;
+    prep_status: "queued" | "preparing" | "done";
+  }[];
 }
 
 export async function getKitchenFeed(user: AppUser, restaurantId: string): Promise<KitchenTicket[]> {
@@ -365,6 +387,7 @@ export interface TrackedOrder {
   payment_status: string;
   placed_at: string;
   updated_at: string;
+  revision: number;
   accepted_at: string | null;
   preparing_at: string | null;
   ready_at: string | null;
@@ -379,8 +402,45 @@ export interface TrackedOrder {
   note: string | null;
   customer_name: string | null;
   table_label: string | null;
-  restaurant: { name: string; slug: string; phone: string | null; logo_path: string | null };
-  items: { name: string; quantity: number; unit_price: string; line_total: string; note: string | null }[];
+  /** Owner-chosen estimate in minutes. Null until the restaurant confirms. */
+  eta_minutes: number | null;
+  eta_set_at: string | null;
+  eta_revisions: number;
+  restaurant: {
+    name: string;
+    slug: string;
+    phone: string | null;
+    logo_path: string | null;
+    address: string | null;
+    city: string | null;
+  };
+  items: {
+    menu_item_id: string | null;
+    name: string;
+    quantity: number;
+    unit_price: string;
+    line_total: string;
+    note: string | null;
+    prep_status: "queued" | "preparing" | "done";
+  }[];
+  /** What this guest may still review — computed in the database. */
+  reviews: {
+    visited: boolean;
+    item_reviewed: (string | null)[];
+    restaurant_reviewed: boolean;
+    /** What the guest wrote on this order, with the restaurant's reply. */
+    mine: {
+      id: string;
+      kind: "item" | "restaurant";
+      rating: number;
+      comment: string | null;
+      item_name: string | null;
+      created_at: string;
+      reply: string | null;
+      reply_at: string | null;
+    }[];
+  };
+  service_requests: { kind: string; status: string; created_at: string }[];
 }
 
 export async function getTrackedOrder(token: string): Promise<TrackedOrder | null> {

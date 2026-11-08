@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, ChefHat, ChevronsUpDown, ExternalLink, LayoutDashboard, LogOut, Menu as MenuIcon, QrCode, ReceiptText, RotateCcw, Settings, Shield, Store, Users, UtensilsCrossed, X } from "lucide-react";
+import { BarChart3, BellRing, ChefHat, ChevronsUpDown, ExternalLink, LayoutDashboard, LogOut, Menu as MenuIcon, QrCode, ReceiptText, RotateCcw, Settings, Shield, Star, Store, Users, UtensilsCrossed, X } from "lucide-react";
 import { cx } from "@/components/ui";
 import type { TenantContext, TenantRole } from "@/lib/auth/server";
 import { logoutAction, switchRestaurantAction } from "@/lib/actions/auth";
@@ -23,6 +23,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/dashboard", label: "Overview", icon: LayoutDashboard, roles: ["owner", "manager", "kitchen", "waiter"], exact: true },
       { href: "/dashboard/orders", label: "Orders", icon: ReceiptText, roles: ["owner", "manager", "waiter"] },
       { href: "/dashboard/kitchen", label: "Kitchen display", icon: ChefHat, roles: ["owner", "manager", "kitchen", "waiter"] },
+      { href: "/dashboard/service", label: "Service requests", icon: BellRing, roles: ["owner", "manager", "kitchen", "waiter"] },
       { href: "/dashboard/tables", label: "Tables & QR", icon: QrCode, roles: ["owner", "manager"] },
     ],
   },
@@ -32,6 +33,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/dashboard/menu", label: "Menu", icon: UtensilsCrossed, roles: ["owner", "manager"] },
       { href: "/dashboard/categories", label: "Categories", icon: MenuIcon, roles: ["owner", "manager"] },
       { href: "/dashboard/customers", label: "Customers", icon: Users, roles: ["owner", "manager"] },
+      { href: "/dashboard/reviews", label: "Reviews", icon: Star, roles: ["owner", "manager"] },
     ],
   },
   {

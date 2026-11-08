@@ -23,3 +23,6 @@ images/menu/
 # credentials (whoever holds one can order to that table), so the PDF stays out
 # of Git and is rebuilt locally with `npm run qr:kit`.
 artifacts/
+
+# Damaged PGlite archives kept for forensics — never committed
+.data/archive/

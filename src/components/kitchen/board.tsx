@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BellRing, ChefHat, CircleCheck, Clock3, Maximize2, Minimize2, RefreshCw, WifiOff } from "lucide-react";
+import { BellRing, Check, ChefHat, CircleCheck, Clock3, Maximize2, Minimize2, RefreshCw, WifiOff } from "lucide-react";
 import { Badge, Button, EmptyState, cx } from "@/components/ui";
 import type { KitchenTicket } from "@/lib/services/orders";
 import type { TenantRole } from "@/lib/auth/server";
@@ -38,6 +38,7 @@ export function KitchenBoard({
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [fullscreen, setFullscreen] = React.useState(false);
+  const [onlyLate, setOnlyLate] = React.useState(false);
   const [now, setNow] = React.useState(() => Date.now());
   const known = React.useRef<Set<string>>(new Set(initialTickets.map((ticket) => ticket.id)));
   const audioReady = React.useRef(false);
@@ -141,14 +142,70 @@ export function KitchenBoard({
     }
   }
 
+  /**
+   * How far past its estimate a ticket is.
+   *
+   * The estimate starts counting when the kitchen actually starts (preparing),
+   * falling back to acceptance. A ticket is "late" only while it is still being
+   * worked on — a ready ticket that overran by four minutes is history, not a
+   * problem on the wall.
+   */
+  function lateness(ticket: KitchenTicket) {
+    if (!ticket.eta_minutes) return { dueAt: null, lateMinutes: 0, late: false, leftMinutes: null as number | null };
+    const base = new Date(ticket.preparing_at ?? ticket.accepted_at).getTime();
+    const dueAt = base + ticket.eta_minutes * 60_000;
+    const finished = ticket.status === "ready";
+    const lateMinutes = Math.max(0, Math.floor((now - dueAt) / 60_000));
+    return {
+      dueAt,
+      lateMinutes,
+      late: !finished && lateMinutes > 0,
+      leftMinutes: Math.max(0, Math.ceil((dueAt - now) / 60_000)),
+    };
+  }
+
+  const visible = onlyLate ? tickets.filter((ticket) => lateness(ticket).late) : tickets;
+  const lateCount = tickets.filter((ticket) => lateness(ticket).late).length;
+
+  async function toggleLine(ticketId: string, itemId: string, current: string) {
+    const next = current === "done" ? "queued" : "done";
+    setBusy(`${ticketId}:${itemId}`);
+    setError(null);
+    // Optimistic: a busy line ticked at the pass should not wait on a round trip.
+    setTickets((prev) =>
+      prev.map((ticket) =>
+        ticket.id === ticketId
+          ? { ...ticket, items: ticket.items.map((line) => (line.id === itemId ? { ...line, prep_status: next } : line)) }
+          : ticket,
+      ),
+    );
+    try {
+      const res = await fetch("/api/service/board", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ itemId, status: next, restaurantId }),
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      if (!data.ok) {
+        setError(data.error ?? "That line could not be updated.");
+        await refresh();
+      }
+    } catch {
+      setError("Network problem — that line was not updated.");
+      await refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const grouped = COLUMNS.map((column) => ({
     ...column,
-    items: tickets
+    items: visible
       .filter((ticket) => ticket.status === column.key)
       .sort((a, b) => new Date(a.accepted_at).getTime() - new Date(b.accepted_at).getTime()),
   }));
 
-  const total = tickets.length;
+  const total = visible.length;
 
   return (
     <div className={cx(fullscreen && "fixed inset-0 z-50 overflow-auto bg-ink-50 p-4")}>
@@ -167,6 +224,22 @@ export function KitchenBoard({
           <Badge tone="neutral">{total} active ticket{total === 1 ? "" : "s"}</Badge>
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setOnlyLate((value) => !value)}
+            aria-pressed={onlyLate}
+            className={cx(
+              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ring-inset transition",
+              onlyLate
+                ? "bg-red-600 text-white ring-red-600"
+                : lateCount > 0
+                  ? "bg-red-50 text-red-700 ring-red-200 hover:bg-red-100"
+                  : "bg-white text-ink-500 ring-ink-200 hover:bg-ink-50",
+            )}
+          >
+            <Clock3 className="size-3" aria-hidden />
+            Delayed {lateCount > 0 ? `· ${lateCount}` : "· none"}
+          </button>
           <Button size="sm" variant="ghost" onClick={() => void refresh()} aria-label="Refresh tickets">
             <RefreshCw className="size-3.5" aria-hidden /> Refresh
           </Button>
@@ -210,7 +283,8 @@ export function KitchenBoard({
                 ) : null}
                 {column.items.map((ticket) => {
                   const minutes = Math.max(0, Math.floor((now - new Date(ticket.accepted_at).getTime()) / 60000));
-                  const urgent = minutes >= 15 && ticket.status !== "ready";
+                  const late = lateness(ticket);
+                  const urgent = late.late || (minutes >= 15 && ticket.status !== "ready");
                   return (
                     <li
                       key={ticket.id}
@@ -234,18 +308,58 @@ export function KitchenBoard({
                         </span>
                       </div>
 
+                      <div className="flex items-center justify-between gap-2 border-b border-ink-100 bg-ink-50/60 px-3 py-1">
+                        <span className="text-[10.5px] text-ink-500">
+                          {ticket.eta_minutes
+                            ? late.late
+                              ? `${late.lateMinutes}m past the ${ticket.eta_minutes}m estimate`
+                              : ticket.status === "ready"
+                                ? `${ticket.eta_minutes}m estimate, finished`
+                                : `${late.leftMinutes}m left of ${ticket.eta_minutes}m`
+                            : "No estimate set"}
+                        </span>
+                        {late.late ? (
+                          <span className="rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-inset ring-red-200">
+                            Delayed
+                          </span>
+                        ) : null}
+                      </div>
+
                       <ul className="space-y-1 px-3 py-2">
-                        {ticket.items.map((line) => (
-                          <li key={line.id} className="flex items-start gap-2">
-                            <span className="mt-px inline-flex min-w-6 justify-center rounded bg-ink-100 px-1 py-0.5 text-[12px] font-bold tabular-nums text-ink-700">
-                              {line.quantity}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="text-[13.5px] font-medium leading-snug text-ink-800">{line.name}</p>
-                              {line.note ? <p className="text-[11.5px] font-medium leading-snug text-clay-700">↳ {line.note}</p> : null}
-                            </div>
-                          </li>
-                        ))}
+                        {ticket.items.map((line) => {
+                          const done = line.prep_status === "done";
+                          return (
+                            <li key={line.id}>
+                              <button
+                                type="button"
+                                onClick={() => void toggleLine(ticket.id, line.id, line.prep_status)}
+                                disabled={busy !== null || ticket.status === "ready"}
+                                aria-pressed={done}
+                                title={done ? "Mark as not done" : "Mark this line done"}
+                                className={cx(
+                                  "flex w-full items-start gap-2 rounded-md px-1 py-0.5 text-left transition hover:bg-ink-50 disabled:cursor-default",
+                                  done && "opacity-50",
+                                )}
+                              >
+                                <span
+                                  className={cx(
+                                    "mt-px inline-flex min-w-6 justify-center rounded px-1 py-0.5 text-[12px] font-bold tabular-nums",
+                                    done ? "bg-moss-100 text-moss-700" : "bg-ink-100 text-ink-700",
+                                  )}
+                                >
+                                  {line.quantity}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className={cx("text-[13.5px] font-medium leading-snug text-ink-800", done && "line-through")}>
+                                    {line.name}
+                                  </p>
+                                  {line.note ? <p className="text-[11.5px] font-medium leading-snug text-clay-700">↳ {line.note}</p> : null}
+                                </div>
+                                {done ? <Check className="ml-auto mt-0.5 size-3.5 shrink-0 text-moss-600" aria-hidden /> : null}
+                              </button>
+                            </li>
+                          );
+                        })}
                       </ul>
 
                       {ticket.note ? (

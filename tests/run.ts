@@ -11,6 +11,7 @@ import { makeSlug } from "../src/lib/validation";
 import { friendlyTransitionError } from "../src/lib/services/orders";
 import { mapServiceError } from "../src/lib/services/errors";
 import { previewDemoReset, resetDemoOrders } from "../src/lib/services/demo-reset";
+import { etaState, friendlyReviewError } from "../src/lib/services/reviews";
 
 type TestFn = () => Promise<void> | void;
 interface Test {
@@ -1028,6 +1029,437 @@ describe("abuse protection", () => {
    Runner
    ========================================================================== */
 
+/* ==========================================================================
+   Preparation estimate, reviews and service requests
+   ========================================================================== */
+
+/** Places an order on the fixture table and returns it with its tracking token. */
+async function freshGuestOrder(items?: { menu_item_id: string; quantity: number; note?: string }[]) {
+  const f = await getFixture();
+  const lines = items ?? [{ menu_item_id: f.itemId, quantity: 2, note: "Less spicy, no onion" }];
+  const order = await createOrderAsGuest(f.qrToken, lines, { name: "Review Guest" });
+  assert(order.order_id, `order should be created (${order.error ?? "no error"})`);
+  return { f, order, token: order.tracking_token! as string, orderId: order.order_id as string };
+}
+
+/** Drives an order all the way to served, as the three roles that must. */
+async function driveToServed(f: Awaited<ReturnType<typeof getFixture>>, orderId: string, eta?: number) {
+  await transition(f.ownerId, orderId, "accepted", undefined, eta ?? null);
+  await transition(f.kitchenId, orderId, "preparing");
+  await transition(f.kitchenId, orderId, "ready");
+  await transition(f.ownerId, orderId, "served");
+}
+
+function describeReviewsAndEta() {
+  describe("preparation estimate", () => {
+    it("is set when the owner accepts, in the same step", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      const result = await transition(f.ownerId, orderId, "accepted", undefined, 20);
+      assertEquals(result?.status, "accepted", "order accepted");
+
+      const tracked = await as(ANON, (tx) =>
+        tx.query<{ order: { eta_minutes: number; status: string } }>(
+          "select public.get_order_tracking($1) as order", [token]));
+      assertEquals(tracked.rows[0]!.order.eta_minutes, 20, "guest sees the estimate");
+      assertEquals(tracked.rows[0]!.order.status, "accepted", "still accepted, not advanced by the estimate");
+    });
+
+    it("shows nothing until the restaurant confirms", async () => {
+      const { token } = await freshGuestOrder();
+      const tracked = await as(ANON, (tx) =>
+        tx.query<{ order: { eta_minutes: number | null } }>("select public.get_order_tracking($1) as order", [token]));
+      assertEquals(tracked.rows[0]!.order.eta_minutes, null, "no promise made yet");
+    });
+
+    it("refuses an out-of-range estimate", async () => {
+      const { f, orderId } = await freshGuestOrder();
+      await assertRejects(
+        () => transition(f.ownerId, orderId, "accepted", undefined, 999),
+        "MP:INVALID_ETA",
+        "999 minutes is not a preparation time",
+      );
+    });
+
+    it("refuses an estimate on a transition that is not acceptance", async () => {
+      const { f, orderId } = await freshGuestOrder();
+      await transition(f.ownerId, orderId, "accepted", undefined, 15);
+      await assertRejects(
+        () => transition(f.kitchenId, orderId, "preparing", undefined, 40),
+        "MP:ETA_NOT_ALLOWED",
+        "preparing cannot carry an estimate",
+      );
+    });
+
+    it("can be changed while the order is live", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await transition(f.ownerId, orderId, "accepted", undefined, 20);
+      await as(asUser(f.ownerId), (tx) =>
+        tx.query("select public.set_order_eta($1,$2)", [orderId, 35]));
+
+      const tracked = await as(ANON, (tx) =>
+        tx.query<{ order: { eta_minutes: number; eta_revisions: number } }>(
+          "select public.get_order_tracking($1) as order", [token]));
+      assertEquals(tracked.rows[0]!.order.eta_minutes, 35, "guest sees the new estimate");
+      assertEquals(tracked.rows[0]!.order.eta_revisions, 2, "both changes are counted");
+    });
+
+    it("refuses an estimate on a pending order", async () => {
+      const { f, orderId } = await freshGuestOrder();
+      await assertRejects(
+        () => as(asUser(f.ownerId), (tx) => tx.query("select public.set_order_eta($1,$2)", [orderId, 20])),
+        "MP:ETA_NOT_ALLOWED",
+        "nothing has been promised yet",
+      );
+    });
+
+    it("never marks an order ready when the estimate passes", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await transition(f.ownerId, orderId, "accepted", undefined, 1);
+      // Pretend the clock ran out: the order must still be where the kitchen left it.
+      await db().then((d) =>
+        d.query("update public.orders set preparing_at = now() - interval '90 minutes' where id = $1", [orderId]),
+      );
+      await transition(f.kitchenId, orderId, "preparing");
+
+      const tracked = await as(ANON, (tx) =>
+        tx.query<{ order: { status: string; eta_minutes: number } }>(
+          "select public.get_order_tracking($1) as order", [token]));
+      assertEquals(tracked.rows[0]!.order.status, "preparing", "an expired estimate does not finish cooking");
+      assertEquals(tracked.rows[0]!.order.eta_minutes, 1, "the estimate is still what was promised");
+    });
+
+    it("computes lateness without touching the status", () => {
+      const stale = etaState({
+        status: "preparing",
+        eta_minutes: 20,
+        accepted_at: new Date(Date.now() - 40 * 60_000).toISOString(),
+        preparing_at: new Date(Date.now() - 30 * 60_000).toISOString(),
+        ready_at: null,
+      });
+      assert(stale.overdue, "30 minutes of cooking against a 20 minute estimate is late");
+      assert(stale.overdueMinutes >= 9, `lateness is counted (got ${stale.overdueMinutes})`);
+      assertEquals(stale.progress, 1, "progress is capped at 100%");
+
+      const waiting = etaState({
+        status: "pending", eta_minutes: null, accepted_at: null, preparing_at: null, ready_at: null,
+      });
+      assert(waiting.waitingForConfirmation, "a pending order has no estimate to count");
+
+      const finished = etaState({
+        status: "ready",
+        eta_minutes: 20,
+        accepted_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+        preparing_at: new Date(Date.now() - 50 * 60_000).toISOString(),
+        ready_at: new Date().toISOString(),
+      });
+      assertEquals(finished.overdue, false, "a finished order is not 'late', it is done");
+    });
+  });
+
+  describe("reviews", () => {
+    it("refuses a review before the order is served", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await transition(f.ownerId, orderId, "accepted", undefined, 20);
+      await assertRejects(
+        () => as(ANON, (tx) =>
+          tx.query("select public.submit_review($1,'item',$2,5,'great',null,null,null,null,null,null,null)", [token, f.itemId])),
+        "MP:REVIEW_NOT_ELIGIBLE",
+        "an accepted order is not a finished experience",
+      );
+    });
+
+    it("accepts a dish review once the order is served", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+
+      const res = await as(ANON, (tx) =>
+        tx.query<{ result: { id: string; item_name: string } }>(
+          "select public.submit_review($1,'item',$2,5,'Excellent',$3,$4,$5,null,null,null,null) as result",
+          [token, f.itemId, 5, 4, 5]));
+      assert(res.rows[0]!.result.id, "review stored");
+      assertEquals(res.rows[0]!.result.item_name, "Test Biryani", "the dish is named back");
+    });
+
+    it("refuses a second review of the same dish", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+      const sql = "select public.submit_review($1,'item',$2,5,null,null,null,null,null,null,null,null)";
+      await as(ANON, (tx) => tx.query(sql, [token, f.itemId]));
+      await assertRejects(
+        () => as(ANON, (tx) => tx.query(sql, [token, f.itemId])),
+        "MP:REVIEW_DUPLICATE_ITEM",
+        "one review per dish per order",
+      );
+    });
+
+    it("refuses a dish that was not on the order", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+      await assertRejects(
+        () => as(ANON, (tx) =>
+          tx.query("select public.submit_review($1,'item',$2,5,null,null,null,null,null,null,null,null)", [token, f.otherItemId])),
+        "MP:ITEM_NOT_ON_ORDER",
+        "a guest cannot review food they did not buy",
+      );
+    });
+
+    it("accepts one visit review and refuses a second", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+      const sql = "select public.submit_review($1,'restaurant',null,4,'Lovely',null,null,null,$2,$3,$4,null)";
+      await as(ANON, (tx) => tx.query(sql, [token, 5, 4, 4]));
+      await assertRejects(
+        () => as(ANON, (tx) => tx.query(sql, [token, 3, 3, 3])),
+        "MP:REVIEW_DUPLICATE_RESTAURANT",
+        "one visit review per order",
+      );
+    });
+
+    it("refuses a review with an invalid tracking token", async () => {
+      const fake = "f".repeat(48);
+      await assertRejects(
+        () => as(ANON, (tx) =>
+          tx.query("select public.submit_review($1,'restaurant',null,5,null,null,null,null,null,null,null,null)", [fake])),
+        "MP:INVALID_TRACKING",
+        "a guessed token reviews nothing",
+      );
+    });
+
+    it("does not let another tenant's guest review this restaurant", async () => {
+      const f = await getFixture();
+      const other = await createOrderAsGuest(f.otherQrToken, [{ menu_item_id: f.otherItemId, quantity: 1 }]);
+      assert(other.order_id, "other tenant order created");
+      await as(asUser(f.otherOwnerId), (tx) =>
+        tx.query("select public.transition_order($1,'accepted',null,$2)", [other.order_id, 10]));
+      await as(asUser(f.otherOwnerId), (tx) =>
+        tx.query("select public.transition_order($1,'preparing',null,null)", [other.order_id]));
+      await as(asUser(f.otherOwnerId), (tx) =>
+        tx.query("select public.transition_order($1,'ready',null,null)", [other.order_id]));
+      await as(asUser(f.otherOwnerId), (tx) =>
+        tx.query("select public.transition_order($1,'served',null,null)", [other.order_id]));
+
+      await as(ANON, (tx) =>
+        tx.query("select public.submit_review($1,'restaurant',null,5,'other tenant',null,null,null,null,null,null,null)",
+          [other.tracking_token]));
+
+      // The review landed on the other tenant and is invisible to this one.
+      const summaries = await as(asUser(f.ownerId), (tx) =>
+        tx.query<{ result: { restaurant: { count: number }; recent: { order_number: string }[] } }>(
+          "select public.restaurant_reviews($1) as result", [f.restaurantId]));
+      const mine = summaries.rows[0]!.result;
+      assert(
+        mine.recent.every((row) => row.order_number !== other.order_number),
+        "another tenant's review never appears here",
+      );
+    });
+
+    it("lets the owner reply and hides without deleting", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+      const created = await as(ANON, (tx) =>
+        tx.query<{ result: { id: string } }>(
+          "select public.submit_review($1,'restaurant',null,2,'Slow service',null,null,$2,$3,$4,null) as result",
+          [token, 2, 3, 2]));
+
+      const reviewId = created.rows[0]!.result.id;
+      const replied = await as(asUser(f.ownerId), (tx) =>
+        tx.query<{ result: { body: string } }>(
+          "select public.reply_to_review($1,$2) as result", [reviewId, "Sorry — we were short staffed."]));
+      assert(replied.rows[0]!.result.body.includes("short staffed"), "reply stored");
+
+      await as(asUser(f.ownerId), (tx) =>
+        tx.query("select public.set_review_hidden($1,$2,$3)", [reviewId, true, "Abusive language"]));
+
+      const summary = await as(asUser(f.ownerId), (tx) =>
+        tx.query<{ result: { recent: { id: string; is_hidden: boolean }[] } }>(
+          "select public.restaurant_reviews($1) as result", [f.restaurantId]));
+      const row = summary.rows[0]!.result.recent.find((r) => r.id === reviewId);
+      assert(row, "a hidden review is still visible to the owner");
+      assertEquals(row!.is_hidden, true, "and is marked hidden rather than gone");
+    });
+
+    it("keeps a hidden review out of public view", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+      const created = await as(ANON, (tx) =>
+        tx.query<{ result: { id: string } }>(
+          "select public.submit_review($1,'restaurant',null,1,null,null,null,null,null,null,null,null) as result", [token]));
+      const reviewId = created.rows[0]!.result.id;
+
+      // The fixture tenant is shared by this suite, so measure the delta rather
+      // than assuming a total.
+      const countFor = async () =>
+        (await as(ANON, (tx) =>
+          tx.query<{ result: { restaurant: { count: number } } }>(
+            "select public.restaurant_reviews($1) as result", [f.restaurantId]))).rows[0]!.result.restaurant.count;
+
+      const publicBefore = await countFor();
+      await as(asUser(f.ownerId), (tx) =>
+        tx.query("select public.set_review_hidden($1,true,$2)", [reviewId, "Spam"]));
+      const publicAfter = await countFor();
+      assertEquals(publicAfter, publicBefore - 1, "the public view drops a hidden review");
+
+      // Staff still see it, flagged — hiding is not deleting.
+      const staffView = await as(asUser(f.ownerId), (tx) =>
+        tx.query<{ result: { recent: { id: string; is_hidden: boolean }[] } }>(
+          "select public.restaurant_reviews($1) as result", [f.restaurantId]));
+      const hiddenRow = staffView.rows[0]!.result.recent.find((row) => row.id === reviewId);
+      assert(hiddenRow && hiddenRow.is_hidden, "the owner still sees the hidden review");
+    });
+
+    it("does not let a manager of another tenant reply", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+      const created = await as(ANON, (tx) =>
+        tx.query<{ result: { id: string } }>(
+          "select public.submit_review($1,'restaurant',null,4,null,null,null,null,null,null,null,null) as result", [token]));
+      await assertRejects(
+        () => as(asUser(f.otherOwnerId), (tx) =>
+          tx.query("select public.reply_to_review($1,$2)", [created.rows[0]!.result.id, "Not mine"])),
+        "MP:FORBIDDEN",
+        "replies are scoped to the tenant",
+      );
+    });
+  });
+
+  describe("service requests", () => {
+    it("raises a request against the guest's own table", async () => {
+      const { token } = await freshGuestOrder();
+      const res = await as(ANON, (tx) =>
+        tx.query<{ result: { id: string; status: string } }>(
+          "select public.request_service($1,'water',null) as result", [token]));
+      assertEquals(res.rows[0]!.result.status, "pending", "queued for staff");
+    });
+
+    it("refuses a duplicate open request of the same kind", async () => {
+      const { token } = await freshGuestOrder();
+      await as(ANON, (tx) => tx.query("select public.request_service($1,'waiter',null)", [token]));
+      await assertRejects(
+        () => as(ANON, (tx) => tx.query("select public.request_service($1,'waiter',null)", [token])),
+        "MP:REQUEST_ALREADY_OPEN",
+        "one open request per kind",
+      );
+    });
+
+    it("allows a different kind while one is open", async () => {
+      const { token } = await freshGuestOrder();
+      await as(ANON, (tx) => tx.query("select public.request_service($1,'waiter',null)", [token]));
+      const second = await as(ANON, (tx) =>
+        tx.query<{ result: { status: string } }>("select public.request_service($1,'bill',null) as result", [token]));
+      assertEquals(second.rows[0]!.result.status, "pending", "asking for the bill is a separate errand");
+    });
+
+    it("moves pending → acknowledged → completed and stops there", async () => {
+      const { f, token } = await freshGuestOrder();
+      const created = await as(ANON, (tx) =>
+        tx.query<{ result: { id: string } }>("select public.request_service($1,'plate',null) as result", [token]));
+      const id = created.rows[0]!.result.id;
+
+      await as(asUser(f.kitchenId), (tx) => tx.query("select public.set_service_status($1,'acknowledged')", [id]));
+      await as(asUser(f.managerId), (tx) => tx.query("select public.set_service_status($1,'completed')", [id]));
+      await assertRejects(
+        () => as(asUser(f.managerId), (tx) => tx.query("select public.set_service_status($1,'acknowledged')", [id])),
+        "MP:REQUEST_CLOSED",
+        "a finished request is finished",
+      );
+    });
+
+    it("keeps the request board away from guests", async () => {
+      const f = await getFixture();
+      await assertRejects(
+        () => as(ANON, (tx) => tx.query("select public.service_board($1)", [f.restaurantId])),
+        "MP:FORBIDDEN",
+        "the board is staff-only",
+      );
+    });
+
+    it("shows the request to staff of that tenant only", async () => {
+      const { f, token } = await freshGuestOrder();
+      await as(ANON, (tx) => tx.query("select public.request_service($1,'waiter','At the window')", [token]));
+
+      const board = await as(asUser(f.ownerId), (tx) =>
+        tx.query<{ board: { kind: string; body: string; table_label: string }[] }>(
+          "select public.service_board($1) as board", [f.restaurantId]));
+      const mine = board.rows[0]!.board.filter((row) => row.body === "At the window");
+      assertEquals(mine.length, 1, "the request is on this tenant's board");
+
+      const otherBoard = await as(asUser(f.otherOwnerId), (tx) =>
+        tx.query<{ board: { body: string }[] }>("select public.service_board($1) as board", [f.otherRestaurantId]));
+      assert(
+        otherBoard.rows[0]!.board.every((row) => row.body !== "At the window"),
+        "another tenant never sees it",
+      );
+    });
+  });
+
+  describe("guest-facing reply", () => {
+    it("shows the restaurant's reply on the guest's own tracker", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+      const created = await as(ANON, (tx) =>
+        tx.query<{ result: { id: string } }>(
+          "select public.submit_review($1,'restaurant',null,5,'Great night',null,null,null,5,5,5,null) as result",
+          [token]));
+      await as(asUser(f.ownerId), (tx) =>
+        tx.query("select public.reply_to_review($1,$2)", [created.rows[0]!.result.id, "Thank you for coming!"]));
+
+      const tracked = await as(ANON, (tx) =>
+        tx.query<{ order: { reviews: { mine: { kind: string; reply: string | null }[] } } }>(
+          "select public.get_order_tracking($1) as order", [token]));
+      const visit = tracked.rows[0]!.order.reviews.mine.find((row) => row.kind === "restaurant");
+      assert(visit, "the guest sees their own review");
+      assertEquals(visit!.reply, "Thank you for coming!", "with the reply attached");
+    });
+
+    it("gives a role-denied message that says so", async () => {
+      const { f, orderId, token } = await freshGuestOrder();
+      await driveToServed(f, orderId);
+      const created = await as(ANON, (tx) =>
+        tx.query<{ result: { id: string } }>(
+          "select public.submit_review($1,'restaurant',null,4,null,null,null,null,null,null,null,null) as result", [token]));
+      const message = await assertRejects(
+        () => as(asUser(f.kitchenId), (tx) =>
+          tx.query("select public.reply_to_review($1,$2)", [created.rows[0]!.result.id, "Not my job"])),
+        "MP:FORBIDDEN",
+        "kitchen cannot reply",
+      );
+      assertEquals(friendlyReviewError(message), "Your role cannot do that.", "and the copy is specific");
+    });
+  });
+
+  describe("kitchen item preparation", () => {
+    it("ticks a line off only after the owner accepted", async () => {
+      const { f, orderId } = await freshGuestOrder();
+      const lines = await db().then((d) =>
+        d.query<{ id: string }>("select id from public.order_items where order_id = $1", [orderId]));
+
+      await assertRejects(
+        () => as(asUser(f.kitchenId), (tx) => tx.query("select public.set_item_prep($1,'done')", [lines.rows[0]!.id])),
+        "MP:PREP_NOT_ALLOWED",
+        "a pending order is not being cooked",
+      );
+
+      await transition(f.ownerId, orderId, "accepted", undefined, 20);
+      const done = await as(asUser(f.kitchenId), (tx) =>
+        tx.query<{ result: { status: string } }>("select public.set_item_prep($1,'done') as result", [lines.rows[0]!.id]));
+      assertEquals(done.rows[0]!.result.status, "done", "line ticked");
+    });
+
+    it("carries the estimate and line state to the kitchen feed", async () => {
+      const { f, orderId } = await freshGuestOrder();
+      await transition(f.ownerId, orderId, "accepted", undefined, 25);
+
+      const feed = await as(asUser(f.kitchenId), (tx) =>
+        tx.query<{ tickets: { id: string; eta_minutes: number; items: { prep_status: string }[] }[] }>(
+          "select public.kitchen_feed($1) as tickets", [f.restaurantId]));
+      const ticket = feed.rows[0]!.tickets.find((t) => t.id === orderId);
+      assert(ticket, "the accepted order is on the pass");
+      assertEquals(ticket!.eta_minutes, 25, "with the promise attached");
+      assertEquals(ticket!.items[0]!.prep_status, "queued", "and its lines unticked");
+    });
+  });
+}
+
 async function main() {
   const started = Date.now();
   console.log("\n  MenuPilot test suite\n");
@@ -1154,6 +1586,8 @@ async function main() {
       await setDemo(f.restaurantId, false);
     });
   });
+
+  describeReviewsAndEta();
 
   for (const [suiteIndex, suite] of suiteStack.entries()) {
     console.log(`  ${suite.name}`);

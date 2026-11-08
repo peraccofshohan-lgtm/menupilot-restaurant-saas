@@ -68,6 +68,8 @@ export default async function DemoDataPage() {
         <Stat label="Line items" value={p.orderItems} />
         <Stat label="Status changes" value={p.statusHistory} />
         <Stat label="Guest records" value={p.customers} />
+        <Stat label="Reviews" value={p.reviews} />
+        <Stat label="Service requests" value={p.serviceRequests} />
       </div>
 
       <h2 className="mt-6 flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-[0.12em] text-ink-400">

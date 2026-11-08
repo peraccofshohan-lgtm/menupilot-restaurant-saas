@@ -142,6 +142,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 restaurantId={tenant.restaurantId}
                 status={order.status}
                 role={tenant.role}
+                etaCurrent={order.eta_minutes}
                 fullWidth
               />
               {order.status === "rejected" && order.rejection_reason ? (
@@ -159,6 +160,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <Detail icon={<Receipt className="size-3.5" aria-hidden />} label="Phone" value={order.customer_phone ?? "Not provided"} />
               <Detail icon={<CreditCard className="size-3.5" aria-hidden />} label="Payment" value={order.payment_status === "paid" ? "Paid" : "Due at counter"} />
               <Detail icon={<Clock3 className="size-3.5" aria-hidden />} label="Table" value={order.table_label ?? "Counter"} />
+              <Detail
+                icon={<Clock3 className="size-3.5" aria-hidden />}
+                label="Preparation estimate"
+                value={order.eta_minutes ? `${order.eta_minutes} minutes` : "Not set"}
+              />
             </CardBody>
           </Card>
 

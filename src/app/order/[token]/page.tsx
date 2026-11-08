@@ -2,10 +2,14 @@ import { mediaUrl } from "@/lib/media";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { ChefHat, CircleCheck, Clock3, XCircle } from "lucide-react";
+import { ChefHat, CircleCheck, Clock3, Star, XCircle } from "lucide-react";
 import { Card } from "@/components/ui";
 import { OrderTracker } from "@/components/customer/order-tracker";
+import { EtaTimer } from "@/components/customer/eta-timer";
+import { ServiceRequest } from "@/components/customer/service-request";
+import { ReviewControls } from "@/components/customer/review-controls";
 import { getTrackedOrder } from "@/lib/services/orders";
+import { etaState } from "@/lib/services/reviews";
 import { formatDateTime, formatMoney, timeAgo } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +19,9 @@ export const metadata: Metadata = {
 };
 
 const STEPS = [
-  { key: "pending", label: "Sent to the restaurant", detail: "Waiting for staff to approve it." },
-  { key: "accepted", label: "Approved", detail: "Your order is with the kitchen." },
-  { key: "preparing", label: "Being prepared", detail: "The kitchen is cooking now." },
+  { key: "pending", label: "Order placed", detail: "Sent to the restaurant." },
+  { key: "accepted", label: "Order accepted", detail: "The kitchen has your ticket." },
+  { key: "preparing", label: "Preparing", detail: "Cooking now." },
   { key: "ready", label: "Ready", detail: "Coming to your table." },
   { key: "served", label: "Served", detail: "Enjoy your meal." },
 ];
@@ -29,6 +33,9 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
 
   const isClosed = order.status === "rejected" || order.status === "cancelled";
   const activeIndex = STEPS.findIndex((step) => step.key === order.status);
+  const eta = etaState(order);
+  const reviewedItems = new Set((order.reviews.item_reviewed ?? []).filter(Boolean) as string[]);
+  const canReview = order.reviews?.visited === true;
 
   return (
     <main className="min-h-dvh bg-ink-50 pb-10">
@@ -74,6 +81,12 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
             </div>
             {isClosed ? <XCircle className="size-6 shrink-0 text-red-500" aria-hidden /> : <Clock3 className="size-6 shrink-0 text-clay-500" aria-hidden />}
           </div>
+
+          {!isClosed ? (
+            <div className="mt-3">
+              <EtaTimer etaMinutes={order.eta_minutes} startedAt={eta.startedAt} status={order.status} />
+            </div>
+          ) : null}
 
           {!isClosed ? (
             <ol className="mt-4 space-y-0">
@@ -122,6 +135,9 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
                     {item.name}
                   </p>
                   {item.note ? <p className="text-[11.5px] text-clay-700">↳ {item.note}</p> : null}
+                  {item.prep_status === "preparing" && order.status === "preparing" ? (
+                    <p className="text-[11px] font-medium text-amber-700">Being cooked now</p>
+                  ) : null}
                 </div>
                 <p className="shrink-0 text-[12.5px] font-medium tabular-nums text-ink-700">{formatMoney(item.line_total, order.currency)}</p>
               </li>
@@ -138,8 +154,71 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
           </p>
         </Card>
 
+        {canReview ? (
+          <Card className="mt-4 p-4">
+            <div className="flex items-start gap-2">
+              <Star className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
+              <div>
+                <h2 className="text-[13px] font-semibold text-ink-900">How was your meal?</h2>
+                <p className="text-[11.5px] text-ink-500">
+                  You can rate each dish you ordered, and the visit as a whole.
+                </p>
+              </div>
+            </div>
+            {order.reviews.mine.some((review) => review.reply) ? (
+              <div className="mt-3 space-y-2">
+                {order.reviews.mine
+                  .filter((review) => review.reply)
+                  .map((review) => (
+                    <div key={review.id} className="rounded-lg border-l-2 border-clay-300 bg-clay-50/60 px-2.5 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-clay-700">
+                        {order.restaurant.name} replied
+                        {review.item_name ? ` about ${review.item_name}` : ""}
+                      </p>
+                      <p className="mt-0.5 text-[12px] leading-relaxed text-ink-700">{review.reply}</p>
+                    </div>
+                  ))}
+              </div>
+            ) : null}
+            <ReviewControls
+              token={token}
+              items={order.items
+                .filter((item) => item.menu_item_id)
+                .map((item) => ({
+                  menuItemId: item.menu_item_id as string,
+                  name: item.name,
+                  reviewed: reviewedItems.has(item.menu_item_id as string),
+                }))}
+              restaurantReviewed={Boolean(order.reviews.restaurant_reviewed)}
+            />
+          </Card>
+        ) : !isClosed ? (
+          <Card className="mt-4 p-4">
+            <p className="text-[12px] text-ink-500">
+              Reviews open once your order has been served — you will see them here.
+            </p>
+          </Card>
+        ) : null}
+
+        {!isClosed ? (
+          <Card className="mt-4 p-4">
+            <h2 className="text-[13px] font-semibold text-ink-900">Need something?</h2>
+            <p className="text-[11.5px] text-ink-500">Ask a member of staff without leaving your seat.</p>
+            <ServiceRequest token={token} existing={order.service_requests ?? []} />
+          </Card>
+        ) : null}
+
         <p className="mt-4 text-center text-[11.5px] leading-relaxed text-ink-400">
           Keep this page open to follow progress. Bookmark it — the link is unique to your order and cannot be guessed.
+          {order.restaurant.phone ? (
+            <>
+              <br />
+              Questions? Call{" "}
+              <a href={`tel:${order.restaurant.phone}`} className="font-medium text-clay-700 hover:underline">
+                {order.restaurant.phone}
+              </a>
+            </>
+          ) : null}
           <br />
           <Link href={`/menu/${order.restaurant.slug}`} className="font-medium text-clay-700 hover:underline">
             Back to {order.restaurant.name}

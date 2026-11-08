@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ ok: false, error: "Your session has expired." }, { status: 401 });
 
-  let body: { orderId?: string; next?: string; restaurantId?: string; reason?: string };
+  let body: { orderId?: string; next?: string; restaurantId?: string; reason?: string; etaMinutes?: number | null };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -29,8 +29,17 @@ export async function POST(request: Request) {
   const restaurantId = await resolveAuthorizedRestaurant(user, body.restaurantId ?? null);
   if (!restaurantId) return NextResponse.json({ ok: false, error: "You do not have access to that restaurant." }, { status: 403 });
 
+  // The estimate is accepted with the order, and only with the order: the
+  // database rejects an ETA on any other transition.
+  const etaMinutes =
+    body.next === "accepted" && body.etaMinutes !== undefined && body.etaMinutes !== null
+      ? Number(body.etaMinutes)
+      : null;
+
   // The database function re-checks membership, role and the state machine.
-  const result = await transitionOrder(user, body.orderId, body.next as OrderStatus, body.reason);
+  const result = await transitionOrder(user, body.orderId, body.next as OrderStatus, body.reason, {
+    etaMinutes,
+  });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
-  return NextResponse.json({ ok: true, status: result.status }, { headers: { "cache-control": "no-store" } });
+  return NextResponse.json({ ok: true, status: result.status, etaMinutes }, { headers: { "cache-control": "no-store" } });
 }

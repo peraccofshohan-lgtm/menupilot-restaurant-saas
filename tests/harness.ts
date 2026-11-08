@@ -306,11 +306,17 @@ export async function createOrderAsGuest(
   return (result.rows[0]?.result ?? {}) as never;
 }
 
-export async function transition(userId: string, orderId: string, next: string, reason?: string) {
+export async function transition(
+  userId: string,
+  orderId: string,
+  next: string,
+  reason?: string,
+  etaMinutes?: number | null,
+) {
   return as(asUser(userId), async (tx) => {
     const res = await tx.query<{ result: { status: string } }>(
-      "select public.transition_order($1,$2,$3) as result",
-      [orderId, next, reason ?? null],
+      "select public.transition_order($1,$2,$3,$4) as result",
+      [orderId, next, reason ?? null, etaMinutes ?? null],
     );
     return res.rows[0]?.result;
   });

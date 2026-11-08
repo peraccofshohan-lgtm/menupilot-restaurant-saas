@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, BarChart3, Coins, Percent, ShoppingBasket } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, Coins, Percent, ShoppingBasket, Star } from "lucide-react";
 import { Alert, Badge, Card, CardBody, CardHeader, EmptyState, PageHeader, Stat, cx } from "@/components/ui";
 import { requireTenant } from "@/lib/auth/server";
 import { getAnalytics } from "@/lib/services/overview";
+import { getReviews } from "@/lib/services/reviews";
 import { formatMoney, formatNumber, percent } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,10 @@ export default async function AnalyticsPage({
       </div>
     );
   }
+
+  // Ratings are their own report; a failure here must not take the money report
+  // down with it, so it is loaded defensively.
+  const reviews = await getReviews(tenant.user, tenant.restaurantId).catch(() => null);
 
   const currency = tenant.currency;
   const revenue = Number(data.totals.revenue);
@@ -125,6 +130,32 @@ export default async function AnalyticsPage({
               }
               hint="Second half vs first half"
               tone={trend >= 0 ? "moss" : "red"}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat
+              label="Visit rating"
+              value={reviews && reviews.restaurant.count > 0 ? Number(reviews.restaurant.average).toFixed(2) : "—"}
+              hint={`${reviews?.restaurant.count ?? 0} visit review${reviews?.restaurant.count === 1 ? "" : "s"}`}
+              icon={<Star className="size-4" aria-hidden />}
+              tone="amber"
+            />
+            <Stat
+              label="Dishes rated"
+              value={reviews ? reviews.items.length : 0}
+              hint={reviews ? `${reviews.recent.filter((r) => r.kind === "item").length} recent dish reviews` : "Unavailable"}
+              icon={<Star className="size-4" aria-hidden />}
+            />
+            <Stat
+              label="5-star visits"
+              value={reviews?.restaurant.five_star ?? 0}
+              hint={`${reviews?.restaurant.low_star ?? 0} at 2 stars or below`}
+            />
+            <Stat
+              label="Service score"
+              value={reviews && reviews.restaurant.count > 0 ? Number(reviews.restaurant.service).toFixed(1) : "—"}
+              hint="Out of 5, from visit reviews"
             />
           </div>
 

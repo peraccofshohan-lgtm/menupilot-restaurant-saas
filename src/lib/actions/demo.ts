@@ -54,12 +54,14 @@ export async function resetDemoAction(_prev: ActionState, formData: FormData): P
   revalidatePath("/dashboard/kitchen");
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/demo");
+  revalidatePath("/dashboard/reviews");
 
   return {
     status: "success",
     message:
-      `Removed ${d.orders} order${d.orders === 1 ? "" : "s"}, ${d.orderItems} line item${d.orderItems === 1 ? "" : "s"} ` +
-      `and ${d.customers} guest record${d.customers === 1 ? "" : "s"}. ` +
+      `Removed ${d.orders} order${d.orders === 1 ? "" : "s"}, ${d.orderItems} line item${d.orderItems === 1 ? "" : "s"}, ` +
+      `${d.customers} guest record${d.customers === 1 ? "" : "s"}, ${d.reviews} review${d.reviews === 1 ? "" : "s"} ` +
+      `and ${d.serviceRequests} service request${d.serviceRequests === 1 ? "" : "s"}. ` +
       `Kept ${result.result.kept.menuItems} dishes, ${result.result.kept.categories} categories and ` +
       `${result.result.kept.qrTokens} QR codes.`,
   };
