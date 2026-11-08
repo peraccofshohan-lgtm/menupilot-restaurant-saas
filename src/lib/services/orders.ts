@@ -332,7 +332,11 @@ export interface PublicMenu {
     name: string;
     slug: string;
     tagline: string | null;
+    /** Bengali tagline/description. Null until the restaurant writes them. */
+    tagline_bn?: string | null;
     description: string | null;
+    description_bn?: string | null;
+    address_bn?: string | null;
     logo_path: string | null;
     cover_path: string | null;
     currency: string;
@@ -350,13 +354,22 @@ export interface PublicMenu {
     accept_orders: boolean;
     require_customer_name: boolean;
   };
-  categories: { id: string; name: string; description: string | null; sort_order: number }[];
+  categories: {
+    id: string;
+    name: string;
+    name_bn?: string | null;
+    description: string | null;
+    description_bn?: string | null;
+    sort_order: number;
+  }[];
   items: {
     id: string;
     category_id: string;
     name: string;
+    name_bn?: string | null;
     slug: string;
     description: string | null;
+    description_bn?: string | null;
     price: string;
     image_path: string | null;
     is_available: boolean;
@@ -417,6 +430,7 @@ export interface TrackedOrder {
   items: {
     menu_item_id: string | null;
     name: string;
+    name_bn?: string | null;
     quantity: number;
     unit_price: string;
     line_total: string;

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./fonts.css";
 
 /* ==========================================================================
    MenuPilot design system
@@ -35,7 +36,12 @@
   --color-moss-600: #3a6140;
   --color-moss-700: #2f4e34;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Hind Siliguri — self-hosted from /public/fonts (no Google Fonts, no CDN).
+     Chosen because it is the Bengali UI face most familiar to readers in
+     Bangladesh, and it carries Latin glyphs too, so digits and Latin reference
+     codes sit on the same rhythm as the Bangla text. */
+  --font-sans: "Hind Siliguri", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-display: "Georgia", "Iowan Old Style", "Times New Roman", serif;
 
   --radius-card: 0.875rem;

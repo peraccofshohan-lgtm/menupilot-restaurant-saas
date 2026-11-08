@@ -5,6 +5,7 @@ import type { Database, Queryable } from "@/lib/db/types";
 import { hashPassword } from "@/lib/auth/password";
 import { storage } from "@/lib/services/storage";
 import { DEMO_MENU, DEMO_RESTAURANT, DEMO_TABLE_COUNT } from "./menu-data";
+import { BANGLA_CATEGORIES, BANGLA_MENU, BANGLA_RESTAURANT } from "./menu-bangla";
 
 /**
  * Idempotent demo seed.
@@ -196,8 +197,8 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
   const rest = await q.query<{ id: string }>(
     `insert into public.restaurants
        (name, slug, tagline, description, phone, email, address, city, currency, time_zone,
-        status, is_demo, created_by)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', true, $11)
+        status, is_demo, created_by, tagline_bn, description_bn, address_bn)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', true, $11, $12, $13, $14)
      returning id`,
     [
       DEMO_RESTAURANT.name,
@@ -210,6 +211,9 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
       DEMO_RESTAURANT.city,
       DEMO_RESTAURANT.currency,
       DEMO_RESTAURANT.timeZone,
+      BANGLA_RESTAURANT.tagline,
+      BANGLA_RESTAURANT.description,
+      BANGLA_RESTAURANT.address,
       ownerId,
     ],
   );
@@ -273,9 +277,17 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
 
   for (const [catIndex, category] of DEMO_MENU.entries()) {
     const inserted = await q.query<{ id: string }>(
-      `insert into public.categories (restaurant_id, name, description, sort_order, is_active)
-       values ($1, $2, $3, $4, true) returning id`,
-      [restaurantId, category.name, category.description, catIndex],
+      `insert into public.categories
+         (restaurant_id, name, description, sort_order, is_active, name_bn, description_bn)
+       values ($1, $2, $3, $4, true, $5, $6) returning id`,
+      [
+        restaurantId,
+        category.name,
+        category.description,
+        catIndex,
+        BANGLA_CATEGORIES[category.name]?.name ?? null,
+        BANGLA_CATEGORIES[category.name]?.description ?? null,
+      ],
     );
     const categoryId = inserted.rows[0]!.id;
     categoryIds.set(category.key, categoryId);
@@ -295,8 +307,8 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
       const row = await q.query<{ id: string }>(
         `insert into public.menu_items
            (restaurant_id, category_id, name, slug, description, price, image_path,
-            is_available, is_featured, sort_order, prep_minutes)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            is_available, is_featured, sort_order, prep_minutes, name_bn, description_bn)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          returning id`,
         [
           restaurantId,
@@ -310,6 +322,8 @@ export async function seedDemo(options: { reset?: boolean } = {}): Promise<SeedR
           Boolean(item.featured),
           itemIndex,
           item.prep ?? 15,
+          BANGLA_MENU[item.name]?.name ?? null,
+          BANGLA_MENU[item.name]?.description ?? null,
         ],
       );
       const itemId = row.rows[0]!.id;

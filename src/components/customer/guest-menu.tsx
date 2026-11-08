@@ -16,10 +16,12 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatNumber } from "@/lib/format";
 import type { PublicMenu } from "@/lib/services/orders";
 import { cartCount, useCart } from "@/lib/customer/cart";
 import { cx } from "@/components/ui";
+import { useT } from "@/lib/i18n/client";
+import { localizedDescription, localizedName, localizedRestaurant } from "@/lib/i18n/content";
 import { OrderHistoryPanel } from "@/components/customer/order-history";
 
 /** The item note column allows 200 characters; the chips respect the same cap. */
@@ -29,6 +31,24 @@ export const NOTE_LIMIT = 200;
  * The instructions that cover most real kitchen requests. Kept short so the
  * whole row still fits on a narrow phone, and descriptive enough that the
  * kitchen ticket reads like a sentence rather than a code.
+ */
+export const NOTE_PRESET_KEYS = [
+  "preset.noOnion",
+  "preset.extraSpicy",
+  "preset.lessSpicy",
+  "preset.noChilli",
+  "preset.sauceOnSide",
+  "preset.noCoriander",
+  "preset.wellDone",
+  "preset.noNuts",
+] as const;
+
+/**
+ * The English text of each preset.
+ *
+ * Notes are stored as text and travel to the kitchen ticket, so the *stored*
+ * value stays in one canonical language regardless of what the chip looked
+ * like. A kitchen screen therefore never shows two spellings of "no onion".
  */
 export const NOTE_PRESETS = [
   "No onion",
@@ -65,7 +85,21 @@ export function appendNote(current: string, preset: string): string {
  * tampered client cannot influence what the guest is charged.
  */
 export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string | null }) {
+  const t = useT();
   const { lines, add, setQuantity, hydrateFor } = useCart();
+
+  // Restaurant data is localised once per render: dish names, descriptions and
+  // the profile block, all falling back to English when a tenant has not
+  // translated that row yet.
+  const brand = React.useMemo(() => localizedRestaurant(menu.restaurant), [menu.restaurant]);
+  const itemName = React.useCallback(
+    (item: { name: string; name_bn?: string | null }) => localizedName(item),
+    [],
+  );
+  const itemDescription = React.useCallback(
+    (item: { description: string | null; description_bn?: string | null }) => localizedDescription(item),
+    [],
+  );
   const [query, setQuery] = React.useState("");
   const [activeCategory, setActiveCategory] = React.useState<string>("all");
   const [detailId, setDetailId] = React.useState<string | null>(null);
@@ -106,7 +140,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
   function addItem(id: string, quantity = 1, note?: string) {
     add(id, quantity, note);
     const item = menu.items.find((entry) => entry.id === id);
-    setFlash(item ? `${item.name} added` : "Added to your order");
+    setFlash(item ? `${itemName(item)} — ${t("dish.addToCart")}` : t("dish.addToCart"));
   }
 
   return (
@@ -125,14 +159,14 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={mediaUrl("branding", menu.restaurant.logo_path)!}
-              alt={`${menu.restaurant.name} logo`}
+              alt={brand.name}
               className="size-14 shrink-0 rounded-xl border border-white/20 object-cover shadow-sm"
             />
           ) : null}
           <div className="min-w-0 pb-0.5">
             <h1 className="truncate text-xl font-semibold text-white">{menu.restaurant.name}</h1>
-            {menu.restaurant.tagline ? (
-              <p className="truncate text-[12.5px] text-white/75">{menu.restaurant.tagline}</p>
+            {brand.tagline ? (
+              <p className="truncate text-[12.5px] text-white/75">{brand.tagline}</p>
             ) : null}
           </div>
         </div>
@@ -148,23 +182,23 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-ink-100 px-2 py-1 text-[11.5px] font-medium text-ink-600">
-              <Info className="size-3" aria-hidden /> Browse only — scan your table code to order
+              <Info className="size-3" aria-hidden /> {t("menu.browseOnly")}
             </span>
           )}
           {qrToken ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-ink-50 px-2 py-1 text-[11.5px] text-ink-600">
-              <ChefHat className="size-3" aria-hidden /> Sent to the kitchen once approved
+              <ChefHat className="size-3" aria-hidden /> {t("menu.orderingHint")}
             </span>
           ) : null}
           {menu.restaurant.phone ? (
             <a href={`tel:${menu.restaurant.phone}`} className="ml-auto inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11.5px] font-medium text-clay-700 hover:bg-clay-50">
-              Call
+              {t("menu.callRestaurant")}
             </a>
           ) : null}
         </div>
 
-        {menu.restaurant.description ? (
-          <p className="mt-3 text-[13px] leading-relaxed text-ink-600">{menu.restaurant.description}</p>
+        {brand.description ? (
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-600">{brand.description}</p>
         ) : null}
 
         {/* Device-local order history. Only shown in a QR session, because a
@@ -172,7 +206,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
         {qrToken && orderingEnabled ? (
           <OrderHistoryPanel
             qrToken={qrToken}
-            menuItems={menu.items.map((item) => ({ id: item.id, name: item.name }))}
+            menuItems={menu.items.map((item) => ({ id: item.id, name: itemName(item) }))}
           />
         ) : null}
 
@@ -183,8 +217,8 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search dishes"
-              aria-label="Search the menu"
+              placeholder={t("menu.searchPlaceholder")}
+              aria-label={t("menu.searchLabel")}
               className="h-10 w-full rounded-xl border border-ink-200 bg-ink-50 pl-9 pr-9 text-[13.5px] text-ink-900 placeholder:text-ink-400 focus:border-clay-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-clay-500/25"
             />
             {query ? (
@@ -192,7 +226,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
                 type="button"
                 onClick={() => setQuery("")}
                 className="absolute right-2 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-full text-ink-400 hover:bg-ink-100"
-                aria-label="Clear search"
+                aria-label={t("menu.clearSearch")}
               >
                 <X className="size-3.5" aria-hidden />
               </button>
@@ -200,7 +234,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
           </div>
           <div className="no-scrollbar mt-2 flex gap-1.5 overflow-x-auto">
             <CategoryChip active={activeCategory === "all"} onClick={() => setActiveCategory("all")}>
-              All
+              {t("menu.allCategories")}
             </CategoryChip>
             {menu.categories.map((category) => (
               <CategoryChip
@@ -208,7 +242,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
                 active={activeCategory === category.id}
                 onClick={() => setActiveCategory(category.id)}
               >
-                {category.name}
+                {localizedName(category)}
               </CategoryChip>
             ))}
             <button
@@ -220,7 +254,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
               )}
               aria-pressed={availableOnly}
             >
-              Available only
+              {t("menu.availableOnly")}
             </button>
           </div>
         </div>
@@ -233,9 +267,9 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
 
         {/* Featured */}
         {featured.length > 0 && activeCategory === "all" && !query ? (
-          <section className="mt-4" aria-label="Featured dishes">
+          <section className="mt-4" aria-label={t("menu.featured")}>
             <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-900">
-              <Sparkles className="size-3.5 text-clay-600" aria-hidden /> Chef's picks
+              <Sparkles className="size-3.5 text-clay-600" aria-hidden /> {t("menu.featured")}
             </h2>
             <div className="no-scrollbar mt-2 flex gap-2.5 overflow-x-auto pb-1">
               {featured.map((item) => (
@@ -245,9 +279,9 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
                   onClick={() => setDetailId(item.id)}
                   className="w-40 shrink-0 overflow-hidden rounded-xl border border-ink-200 bg-white text-left shadow-[var(--shadow-card)]"
                 >
-                  <MenuImage path={item.image_path} alt={item.name} className="h-24 w-full" />
+                  <MenuImage path={item.image_path} alt={itemName(item)} className="h-24 w-full" />
                   <div className="p-2">
-                    <p className="truncate text-[12.5px] font-semibold text-ink-900">{item.name}</p>
+                    <p className="truncate text-[12.5px] font-semibold text-ink-900">{itemName(item)}</p>
                     <p className="text-[12px] font-medium text-clay-700">{formatMoney(item.price, currency)}</p>
                   </div>
                 </button>
@@ -266,10 +300,10 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
               return (
                 <section key={category.id} aria-labelledby={`cat-${category.id}`}>
                   <div className="flex items-baseline justify-between gap-2">
-                    <h2 id={`cat-${category.id}`} className="text-[15px] font-semibold text-ink-900">{category.name}</h2>
-                    <span className="text-[11px] text-ink-400">{items.length} dishes</span>
+                    <h2 id={`cat-${category.id}`} className="text-[15px] font-semibold text-ink-900">{localizedName(category)}</h2>
+                    <span className="text-[11px] text-ink-400">{t("unit.items", { count: items.length })} · {items.length}</span>
                   </div>
-                  {category.description ? <p className="mt-0.5 text-[12px] text-ink-500">{category.description}</p> : null}
+                  {localizedDescription(category) ? <p className="mt-0.5 text-[12px] text-ink-500">{localizedDescription(category)}</p> : null}
                   <ul className="mt-2 divide-y divide-ink-100">
                     {items.map((item) => {
                       const line = lines.find((entry) => entry.menuItemId === item.id);
@@ -282,22 +316,22 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
                           >
                             <div className="flex items-start gap-1.5">
                               <p className={cx("text-[13.5px] font-semibold", item.is_available ? "text-ink-900" : "text-ink-400")}>
-                                {item.name}
+                                {itemName(item)}
                               </p>
                               {item.is_featured ? <Sparkles className="mt-1 size-3 shrink-0 text-clay-500" aria-hidden /> : null}
                             </div>
-                            {item.description ? (
-                              <p className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-ink-500">{item.description}</p>
+                            {itemDescription(item) ? (
+                              <p className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-ink-500">{itemDescription(item)}</p>
                             ) : null}
                             <div className="mt-1 flex items-center gap-2">
                               <p className={cx("text-[13px] font-semibold", item.is_available ? "text-ink-800" : "text-ink-400")}>
                                 {formatMoney(item.price, currency)}
                               </p>
                               {!item.is_available ? (
-                                <span className="rounded-full bg-ink-100 px-1.5 py-0.5 text-[10px] font-medium text-ink-500">Sold out</span>
+                                <span className="rounded-full bg-ink-100 px-1.5 py-0.5 text-[10px] font-medium text-ink-500">{t("menu.soldOut")}</span>
                               ) : (
                                 <span className="inline-flex items-center gap-0.5 text-[10.5px] text-ink-400">
-                                  <Clock3 className="size-2.5" aria-hidden /> {item.prep_minutes} min
+                                  <Clock3 className="size-2.5" aria-hidden /> {t("menu.prepTime", { minutes: formatNumber(item.prep_minutes) })}
                                 </span>
                               )}
                             </div>
@@ -305,7 +339,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
 
                           <div className="relative w-24 shrink-0">
                             <button type="button" onClick={() => setDetailId(item.id)} className="block w-full">
-                              <MenuImage path={item.image_path} alt={item.name} className={cx("h-20 w-full", !item.is_available && "opacity-50")} />
+                              <MenuImage path={item.image_path} alt={itemName(item)} className={cx("h-20 w-full", !item.is_available && "opacity-50")} />
                             </button>
                             {line ? (
                               <div className="absolute -bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-ink-200 bg-white p-0.5 shadow-sm">
@@ -313,7 +347,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
                                   type="button"
                                   onClick={() => setQuantity(item.id, line.quantity - 1)}
                                   className="grid size-6 place-items-center rounded-full text-ink-600 hover:bg-ink-100"
-                                  aria-label={`Remove one ${item.name}`}
+                                  aria-label={`${t("dish.decrease")} — ${itemName(item)}`}
                                 >
                                   <Minus className="size-3" aria-hidden />
                                 </button>
@@ -323,7 +357,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
                                   onClick={() => setQuantity(item.id, line.quantity + 1)}
                                   disabled={!item.is_available}
                                   className="grid size-6 place-items-center rounded-full text-clay-700 hover:bg-clay-50 disabled:opacity-40"
-                                  aria-label={`Add one ${item.name}`}
+                                  aria-label={`${t("dish.increase")} — ${itemName(item)}`}
                                 >
                                   <Plus className="size-3" aria-hidden />
                                 </button>
@@ -334,7 +368,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
                                 disabled={!item.is_available}
                                 onClick={() => addItem(item.id)}
                                 className="absolute -bottom-2 left-1/2 grid size-8 -translate-x-1/2 place-items-center rounded-full border border-ink-200 bg-white text-clay-700 shadow-sm transition-colors hover:bg-clay-50 disabled:cursor-not-allowed disabled:text-ink-300"
-                                aria-label={`Add ${item.name} to your order`}
+                                aria-label={`${t("dish.addToCart")} — ${itemName(item)}`}
                               >
                                 <Plus className="size-4" aria-hidden />
                               </button>
@@ -351,8 +385,8 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
           {filtered.length === 0 ? (
             <div className="py-14 text-center">
               <Search className="mx-auto size-5 text-ink-300" aria-hidden />
-              <p className="mt-2 text-[13.5px] font-medium text-ink-700">Nothing matches that search</p>
-              <p className="mt-0.5 text-[12.5px] text-ink-500">Try another dish name, or clear the filters.</p>
+              <p className="mt-2 text-[13.5px] font-medium text-ink-700">{t("menu.noResults")}</p>
+              <p className="mt-0.5 text-[12.5px] text-ink-500">{t("menu.noResultsHint")}</p>
               <button
                 type="button"
                 onClick={() => {
@@ -362,7 +396,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
                 }}
                 className="mt-3 rounded-lg border border-ink-200 px-3 py-1.5 text-[12.5px] font-medium text-ink-700 hover:bg-ink-50"
               >
-                Clear filters
+                {t("menu.clearFilters")}
               </button>
             </div>
           ) : null}
@@ -370,10 +404,14 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
 
         <footer className="mt-10 border-t border-ink-100 pt-4 pb-6 text-center">
           <p className="text-[11px] text-ink-400">
-            {menu.settings.tax_label} {Number(menu.settings.tax_rate)}% · {menu.settings.service_charge_label}{" "}
-            {Number(menu.settings.service_charge_rate)}% applied at checkout. Payment at the counter.
+            {t("menu.taxNote", {
+              taxLabel: menu.settings.tax_label,
+              taxRate: formatNumber(Number(menu.settings.tax_rate)),
+              serviceLabel: menu.settings.service_charge_label,
+              serviceRate: formatNumber(Number(menu.settings.service_charge_rate)),
+            })}
           </p>
-          <p className="mt-1 text-[10.5px] text-ink-300">Powered by MenuPilot</p>
+          <p className="mt-1 text-[10.5px] text-ink-300">{t("app.poweredBy")}</p>
         </footer>
       </div>
 
@@ -383,10 +421,10 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
           <div className="mx-auto flex max-w-2xl items-center gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-[12px] text-ink-500">
-                {count} item{count === 1 ? "" : "s"} · {formatMoney(cartSubtotal, currency)}
+                {formatNumber(count)} {t("unit.items")} · {formatMoney(cartSubtotal, currency)}
               </p>
               <p className="text-[10.5px] text-ink-400">
-                {orderingEnabled ? "Taxes added at checkout" : "Scan a table code to order"}
+                {orderingEnabled ? t("dish.taxesAtCheckout") : t("dish.scanToOrder")}
               </p>
             </div>
             <Link
@@ -397,7 +435,7 @@ export function GuestMenu({ menu, qrToken }: { menu: PublicMenu; qrToken: string
               )}
               aria-disabled={!orderingEnabled}
             >
-              <ShoppingBag className="size-4" aria-hidden /> Review order
+              <ShoppingBag className="size-4" aria-hidden /> {t("cart.checkout")}
               <ArrowRight className="size-4" aria-hidden />
             </Link>
           </div>
@@ -484,6 +522,7 @@ function ItemSheet({
   onQuantity: (quantity: number) => void;
   orderingEnabled: boolean;
 }) {
+  const t = useT();
   const [quantity, setQuantity] = React.useState(line?.quantity ?? 1);
   const [note, setNote] = React.useState(line?.note ?? "");
 
@@ -500,30 +539,30 @@ function ItemSheet({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-900/50" role="dialog" aria-modal="true" aria-label={item.name}>
-      <button type="button" className="absolute inset-0" onClick={onClose} aria-label="Close" />
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-900/50" role="dialog" aria-modal="true" aria-label={localizedName(item)}>
+      <button type="button" className="absolute inset-0" onClick={onClose} aria-label={t("dish.close")} />
       <div className="relative max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white">
         <div className="relative">
-          <MenuImage path={item.image_path} alt={item.name} className="h-52 w-full rounded-none" />
+          <MenuImage path={item.image_path} alt={localizedName(item)} className="h-52 w-full rounded-none" />
           <button
             type="button"
             onClick={onClose}
             className="absolute right-3 top-3 grid size-8 place-items-center rounded-full bg-white/95 text-ink-700 shadow-sm"
-            aria-label="Close"
+            aria-label={t("dish.close")}
           >
             <X className="size-4" aria-hidden />
           </button>
         </div>
         <div className="p-4 pb-6">
           <div className="flex items-start justify-between gap-3">
-            <h2 className="text-[17px] font-semibold leading-snug text-ink-900">{item.name}</h2>
+            <h2 className="text-[17px] font-semibold leading-snug text-ink-900">{localizedName(item)}</h2>
             <p className="shrink-0 text-[16px] font-semibold tabular-nums text-ink-900">{formatMoney(item.price, currency)}</p>
           </div>
-          {item.description ? <p className="mt-1.5 text-[13px] leading-relaxed text-ink-600">{item.description}</p> : null}
+          {localizedDescription(item) ? <p className="mt-1.5 text-[13px] leading-relaxed text-ink-600">{localizedDescription(item)}</p> : null}
           <div className="mt-2 flex items-center gap-2 text-[11.5px] text-ink-400">
-            <Clock3 className="size-3" aria-hidden /> About {item.prep_minutes} minutes
+            <Clock3 className="size-3" aria-hidden /> {t("menu.prepTime", { minutes: formatNumber(item.prep_minutes) })}
             {!item.is_available ? (
-              <span className="rounded-full bg-ink-100 px-1.5 py-0.5 font-medium text-ink-500">Sold out</span>
+              <span className="rounded-full bg-ink-100 px-1.5 py-0.5 font-medium text-ink-500">{t("menu.soldOut")}</span>
             ) : null}
           </div>
 
@@ -531,28 +570,29 @@ function ItemSheet({
             <>
               <div className="mt-4">
                 <label htmlFor="item-note" className="text-[12.5px] font-medium text-ink-700">
-                  Special instructions <span className="font-normal text-ink-400">(optional)</span>
+                  {t("dish.specialInstructions")} <span className="font-normal text-ink-400">{t("dish.instructionsOptional")}</span>
                 </label>
                 <textarea
                   id="item-note"
                   value={note}
                   onChange={(event) => setNote(event.target.value.slice(0, NOTE_LIMIT))}
                   rows={2}
-                  placeholder="No onion, extra spicy, sauce on the side…"
+                  placeholder={t("dish.instructionsPlaceholder")}
                   className="mt-1 w-full rounded-lg border border-ink-200 px-2.5 py-2 text-[13px] text-ink-800 placeholder:text-ink-400 focus:border-clay-500 focus:outline-none focus:ring-2 focus:ring-clay-500/25"
                 />
                 {/* One tap beats typing on a phone at a table. These append to
                     whatever is already written, so guests never lose their own
                     words when they tap a chip. */}
-                <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Common instructions">
-                  {NOTE_PRESETS.map((preset) => {
+                <div className="mt-2 flex flex-wrap gap-1.5" aria-label={t("dish.commonInstructions")}>
+                  {NOTE_PRESET_KEYS.map((presetKey, index) => {
+                    const preset = NOTE_PRESETS[index]!;
                     const active = note
                       .split(",")
                       .map((part) => part.trim().toLowerCase())
                       .includes(preset.toLowerCase());
                     return (
                       <button
-                        key={preset}
+                        key={presetKey}
                         type="button"
                         aria-pressed={active}
                         onClick={() =>
@@ -574,7 +614,7 @@ function ItemSheet({
                             : "border-ink-200 text-ink-600 hover:border-ink-300 hover:bg-ink-50",
                         )}
                       >
-                        {preset}
+                        {t(presetKey)}
                       </button>
                     );
                   })}
@@ -590,7 +630,7 @@ function ItemSheet({
                     type="button"
                     onClick={() => setQuantity((value) => Math.max(1, value - 1))}
                     className="grid size-8 place-items-center rounded-lg text-ink-600 hover:bg-ink-100"
-                    aria-label="Decrease quantity"
+                    aria-label={t("dish.decrease")}
                   >
                     <Minus className="size-4" aria-hidden />
                   </button>
@@ -599,7 +639,7 @@ function ItemSheet({
                     type="button"
                     onClick={() => setQuantity((value) => Math.min(99, value + 1))}
                     className="grid size-8 place-items-center rounded-lg text-ink-600 hover:bg-ink-100"
-                    aria-label="Increase quantity"
+                    aria-label={t("dish.increase")}
                   >
                     <Plus className="size-4" aria-hidden />
                   </button>
@@ -609,7 +649,7 @@ function ItemSheet({
                   onClick={() => (line ? onQuantity(quantity) : onAdd(quantity, note.trim() || undefined))}
                   className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-clay-600 px-4 text-[13.5px] font-semibold text-white hover:bg-clay-700"
                 >
-                  {line ? "Update order" : "Add to order"} · {formatMoney(Number(item.price) * quantity, currency)}
+                  {line ? t("dish.updateCart") : t("dish.addToCart")} · {formatMoney(Number(item.price) * quantity, currency)}
                 </button>
               </div>
               {line ? (
@@ -621,15 +661,13 @@ function ItemSheet({
                   }}
                   className="mt-2 w-full text-center text-[12px] font-medium text-red-600 hover:underline"
                 >
-                  Remove from order
+                  {t("action.remove")}
                 </button>
               ) : null}
             </>
           ) : (
             <p className="mt-4 rounded-lg bg-ink-50 px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-600 ring-1 ring-inset ring-ink-100">
-              {item.is_available
-                ? "Scan the QR code on your table to order this dish."
-                : "This dish is unavailable right now. Please ask your server for an alternative."}
+              {item.is_available ? t("dish.scanToOrder") : t("dish.unavailableNow")}
             </p>
           )}
         </div>
