@@ -182,7 +182,17 @@ async function audit(): Promise<void> {
   console.log(`  perceptually near-identical  : ${near.length} pair(s) at ≤${THRESHOLD}/64 bits`);
   for (const [a, b, d] of near) console.log(`    ✗ ${a} ~ ${b} (distance ${d})`);
 
-  const failed = reused.length > 0 || duplicateBytes.length > 0 || near.length > 0;
+  // Also confirm the assets on disk cover every item, matched by the photo slug in
+  // the seed data — so "50 dishes" and "50 photographs" cannot drift apart.
+  const { DEMO_MENU } = await import("../src/lib/seed/menu-data");
+  const expected = DEMO_MENU.flatMap((c) => c.items.map((i) => ({ name: i.name, photo: i.photo })));
+  const onDisk = new Set(slugs);
+  const missingForItem = expected.filter((i) => !onDisk.has(i.photo));
+  console.log(`\n  seed items naming a photograph : ${expected.length - missingForItem.length}/${expected.length}`);
+  for (const i of missingForItem) console.log(`    ✗ ${i.name} → ${i.photo}.webp not generated`);
+
+  const failed =
+    reused.length > 0 || duplicateBytes.length > 0 || near.length > 0 || missingForItem.length > 0;
   console.log(`\n  ${failed ? "\x1b[31mFAILED\x1b[0m" : "\x1b[32mPASSED\x1b[0m"}\n`);
   await db.close();
   process.exit(failed ? 1 : 0);
