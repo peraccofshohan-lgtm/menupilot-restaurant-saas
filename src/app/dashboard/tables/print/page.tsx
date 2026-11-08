@@ -6,7 +6,7 @@ import { serverEnv } from "@/lib/env";
 import { PrintTrigger } from "./print-trigger";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Print QR sheet" };
+export const metadata = { title: "QR ছাপার পাতা" };
 
 export default async function PrintSheetPage() {
   const tenant = await requireTenant(["owner", "manager"]);

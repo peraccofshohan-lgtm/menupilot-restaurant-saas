@@ -6,7 +6,7 @@ import { formatDay, initials } from "@/lib/format";
 import { Shield, UserPlus, Users } from "lucide-react";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Staff" };
+export const metadata = { title: "কর্মচারী" };
 
 const ROLE_TONE: Record<string, "clay" | "blue" | "amber" | "neutral"> = {
   owner: "clay",

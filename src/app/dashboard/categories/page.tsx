@@ -4,7 +4,7 @@ import { requireTenant } from "@/lib/auth/server";
 import { getMenu } from "@/lib/services/menu";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Categories" };
+export const metadata = { title: "ক্যাটাগরি" };
 
 export default async function CategoriesPage() {
   const tenant = await requireTenant(["owner", "manager"]);

@@ -5,7 +5,7 @@ import { Alert, Card, PageHeader, Stat } from "@/components/ui";
 import { ReviewManager, Stars } from "@/components/dashboard/review-manager";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Reviews" };
+export const metadata = { title: "মতামত" };
 
 export default async function ReviewsPage() {
   const tenant = await requireTenant(["owner", "manager"]);

@@ -5,7 +5,7 @@ import { asAuthed } from "@/lib/auth/server";
 import { ExternalLink } from "lucide-react";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Settings" };
+export const metadata = { title: "সেটিংস" };
 
 interface SettingsRow {
   name: string;

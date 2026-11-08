@@ -7,7 +7,7 @@ import { getReviews } from "@/lib/services/reviews";
 import { formatMoney, formatNumber, percent } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Analytics" };
+export const metadata = { title: "হিসাব ও রিপোর্ট" };
 
 const RANGES = [
   { key: "7", label: "7 days" },

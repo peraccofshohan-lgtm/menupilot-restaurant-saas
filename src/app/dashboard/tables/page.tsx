@@ -7,7 +7,7 @@ import { getTables, buildQrSvg } from "@/lib/services/tables";
 import { serverEnv } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Tables & QR" };
+export const metadata = { title: "টেবিল ও QR" };
 
 export default async function TablesPage() {
   const tenant = await requireTenant(["owner", "manager"]);

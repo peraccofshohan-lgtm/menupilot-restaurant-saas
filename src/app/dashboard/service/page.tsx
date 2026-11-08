@@ -4,7 +4,7 @@ import { Alert, PageHeader } from "@/components/ui";
 import { ServiceBoard } from "@/components/dashboard/service-board";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Service requests" };
+export const metadata = { title: "সার্ভিস অনুরোধ" };
 
 export default async function ServicePage() {
   const tenant = await requireTenant(["owner", "manager", "waiter", "kitchen"]);

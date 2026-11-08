@@ -5,7 +5,7 @@ import { PageHeader, LinkButton, Alert } from "@/components/ui";
 import { ExternalLink } from "lucide-react";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Kitchen display" };
+export const metadata = { title: "রান্নাঘরের স্ক্রিন" };
 
 export default async function KitchenPage() {
   const tenant = await requireTenant(["owner", "manager", "kitchen", "waiter"]);

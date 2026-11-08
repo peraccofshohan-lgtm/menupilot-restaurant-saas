@@ -7,7 +7,7 @@ import { listOrders, ORDER_STATUSES, type OrderStatus } from "@/lib/services/ord
 import { formatDateTime, formatMoney, timeAgo } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Orders" };
+export const metadata = { title: "অর্ডার" };
 
 const FILTERS: { value: OrderStatus | "all" | "active"; label: string }[] = [
   { value: "active", label: "Active" },

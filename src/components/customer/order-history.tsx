@@ -7,6 +7,8 @@ import { cx } from "@/components/ui";
 import { formatMoney, timeAgo } from "@/lib/format";
 import { useCart } from "@/lib/customer/cart";
 import { reorderLines, useOrderHistory } from "@/lib/customer/order-history";
+import { useT } from "@/lib/i18n/client";
+import { formatNumber, formatReference } from "@/lib/format";
 
 /**
  * "Your recent orders on this phone" — a local, honest history list.
@@ -22,6 +24,7 @@ export function OrderHistoryPanel({
   qrToken: string;
   menuItems: { id: string; name: string }[];
 }) {
+  const t = useT();
   const { token, orders, hydrateFor, forget } = useOrderHistory();
   const { hydrateFor: hydrateCart, add, lines } = useCart();
   const [flash, setFlash] = React.useState<string | null>(null);
@@ -41,11 +44,7 @@ export function OrderHistoryPanel({
     const { lines: restored, unavailable } = reorderLines(entry.lines, menuItems);
 
     if (restored.length === 0) {
-      setFlash(
-        unavailable.length > 0
-          ? `Nothing from ${entry.orderNumber} is on the menu today.`
-          : `Could not rebuild ${entry.orderNumber}.`,
-      );
+      setFlash(t("history.nothingAvailable", { number: formatReference(entry.orderNumber) }));
       return;
     }
 
@@ -54,8 +53,8 @@ export function OrderHistoryPanel({
 
     setFlash(
       unavailable.length > 0
-        ? `Added ${restored.length} item${restored.length === 1 ? "" : "s"} — ${unavailable.join(", ")} ${unavailable.length === 1 ? "is" : "are"} no longer available.`
-        : `Added ${restored.length} item${restored.length === 1 ? "" : "s"} to your cart.`,
+        ? t("history.reorderedPartial", { count: formatNumber(restored.length), names: unavailable.join(", ") })
+        : t("history.reordered", { count: formatNumber(restored.length) }),
     );
   }
 
@@ -64,9 +63,9 @@ export function OrderHistoryPanel({
       <div className="flex items-center justify-between gap-2">
         <h2 className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-900">
           <History className="size-3.5 text-ink-400" aria-hidden />
-          Your recent orders
+          {t("history.title")}
         </h2>
-        <span className="text-[10.5px] text-ink-400">on this phone</span>
+        <span className="text-[10.5px] text-ink-400">{t("history.onThisPhone")}</span>
       </div>
 
       {flash ? (
@@ -88,8 +87,7 @@ export function OrderHistoryPanel({
                   </p>
                   <p className="truncate text-[11px] text-ink-500">{items}</p>
                   <p className="text-[10.5px] text-ink-400">
-                    {timeAgo(entry.placedAt)} · {formatMoney(entry.total, entry.currency)} · {entry.itemCount}{" "}
-                    item{entry.itemCount === 1 ? "" : "s"}
+                    {timeAgo(entry.placedAt)} · {formatMoney(entry.total, entry.currency)} · {formatNumber(entry.itemCount)} {t("unit.items")}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -102,12 +100,12 @@ export function OrderHistoryPanel({
                     )}
                   >
                     <RotateCcw className="size-3" aria-hidden />
-                    Reorder
+                    {t("history.reorder")}
                   </button>
                   <button
                     type="button"
                     onClick={() => forget(entry.id)}
-                    aria-label={`Remove ${entry.orderNumber} from this list`}
+                    aria-label={t("history.remove", { number: formatReference(entry.orderNumber) })}
                     className="rounded-lg px-1.5 py-1 text-[13px] leading-none text-ink-300 hover:bg-ink-100 hover:text-ink-500"
                   >
                     ×
@@ -121,13 +119,13 @@ export function OrderHistoryPanel({
 
       {lines.length > 0 ? (
         <p className="mt-2 text-[10.5px] text-ink-400">
-          Your cart is saved on this phone — reopen the cart to send the order.
+          {t("history.cartSaved")}
         </p>
       ) : (
         <p className="mt-2 text-[10.5px] text-ink-400">
-          Reorder fills your cart so you can change quantities before sending.{" "}
+          {t("history.reorderHint")}{" "}
           <Link href="#menu" className="text-clay-700 hover:underline">
-            View menu
+            {t("history.viewMenu")}
           </Link>
         </p>
       )}

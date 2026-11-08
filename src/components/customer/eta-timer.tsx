@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { Clock3, TriangleAlert } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
+import { formatMinutesShort, formatNumber } from "@/lib/format";
 import { cx } from "@/components/ui";
 
 /**
@@ -57,6 +59,7 @@ export function EtaTimer({
   }
 
   const base = startedAt ? new Date(startedAt).getTime() : now;
+  const t = useT();
   const dueAt = base + etaMinutes * 60_000;
   const remainingMs = dueAt - now;
   const overdue = !finished && remainingMs < 0;
@@ -78,18 +81,15 @@ export function EtaTimer({
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500">
             <Clock3 className="size-3" aria-hidden />
-            Estimated preparation
+            {t("eta.estimate")}
           </p>
           <p className="mt-0.5 text-[15px] font-semibold tabular-nums text-ink-900">
             {finished ? (
-              etaMinutes === 0 ? "—" : `${etaMinutes} minutes`
+              etaMinutes === 0 ? "—" : formatMinutesShort(etaMinutes)
             ) : overdue ? (
-              <span className="text-amber-900">Taking a little longer</span>
+              <span className="text-amber-900">{t("eta.overdue", { minutes: formatNumber(minutesOver) })}</span>
             ) : (
-              <>
-                {minutesLeft} minute{minutesLeft === 1 ? "" : "s"} left
-                <span className="ml-1.5 text-[12px] font-normal text-ink-500">of {etaMinutes}</span>
-              </>
+              <>{t("eta.remaining", { total: formatNumber(etaMinutes), remaining: formatNumber(minutesLeft) })}</>
             )}
           </p>
         </div>
@@ -108,16 +108,15 @@ export function EtaTimer({
 
       {overdue ? (
         <p className="mt-2 text-[11.5px] leading-relaxed text-amber-900">
-          Your order is taking a little longer. Thank you for waiting — our team has been told
-          it is {minutesOver} minute{minutesOver === 1 ? "" : "s"} past the estimate.
+          {t("eta.overdueHint")} ({t("eta.overdue", { minutes: formatNumber(minutesOver) })})
         </p>
       ) : finished ? (
         <p className="mt-1.5 text-[11.5px] text-ink-500">
-          {status === "ready" ? "Ready and on its way to your table." : "Served. Enjoy your meal."}
+          {status === "ready" ? t("eta.comingToTable") : t("eta.served")}
         </p>
       ) : (
         <p className="mt-1.5 text-[11px] text-ink-400">
-          An estimate only — your food is ready when the kitchen says it is.
+          {t("eta.waitingHint")}
         </p>
       )}
     </div>

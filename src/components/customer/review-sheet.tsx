@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { CircleCheck, Star, X } from "lucide-react";
 import { Button, Textarea, cx } from "@/components/ui";
+import { useT } from "@/lib/i18n/client";
 
 /**
  * Review a served order.
@@ -16,14 +17,14 @@ import { Button, Textarea, cx } from "@/components/ui";
 const SUB_SCORES =
   {
     item: [
-      { key: "taste", label: "Taste" },
-      { key: "quality", label: "Quality" },
-      { key: "presentation", label: "Presentation" },
+      { key: "taste", labelKey: "review.taste" },
+      { key: "quality", labelKey: "review.quality" },
+      { key: "presentation", labelKey: "review.presentation" },
     ],
     restaurant: [
-      { key: "service", label: "Service" },
-      { key: "staff", label: "Staff behaviour" },
-      { key: "cleanliness", label: "Cleanliness" },
+      { key: "service", labelKey: "review.service" },
+      { key: "staff", labelKey: "review.staff" },
+      { key: "cleanliness", labelKey: "review.cleanliness" },
     ],
   } as const;
 
@@ -84,6 +85,7 @@ export function ReviewSheet({
   subtitle?: string;
   onClose: () => void;
 }) {
+  const t = useT();
   const router = useRouter();
   const [rating, setRating] = React.useState(0);
   const [comment, setComment] = React.useState("");
@@ -94,7 +96,7 @@ export function ReviewSheet({
 
   async function submit() {
     if (rating < 1) {
-      setError("Pick a star rating first.");
+      setError(t("review.requiredRating"));
       return;
     }
     setBusy(true);
@@ -114,14 +116,14 @@ export function ReviewSheet({
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
       if (!data.ok) {
-        setError(data.error ?? "That review could not be saved.");
+        setError(t("error.saveFailed"));
         return;
       }
       setDone(true);
       router.refresh();
       setTimeout(onClose, 1400);
     } catch {
-      setError("Network problem — your review was not saved.");
+      setError(t("error.network"));
     } finally {
       setBusy(false);
     }
@@ -132,10 +134,10 @@ export function ReviewSheet({
       <div className="max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 pb-6 shadow-xl sm:rounded-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-ink-900">{done ? "Thank you" : title}</h2>
+            <h2 className="text-[15px] font-semibold text-ink-900">{done ? t("review.thanks") : title}</h2>
             {subtitle && !done ? <p className="text-[12px] text-ink-500">{subtitle}</p> : null}
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100" aria-label="Close">
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100" aria-label={t("action.close")}>
             <X className="size-4" aria-hidden />
           </button>
         </div>
@@ -143,25 +145,25 @@ export function ReviewSheet({
         {done ? (
           <div className="mt-5 flex flex-col items-center py-6 text-center">
             <CircleCheck className="size-9 text-moss-600" aria-hidden />
-            <p className="mt-2 text-[13.5px] font-medium text-ink-900">Your review has been sent</p>
-            <p className="mt-0.5 text-[12px] text-ink-500">The restaurant can see it straight away.</p>
+            <p className="mt-2 text-[13.5px] font-medium text-ink-900">{t("review.thanksRestaurant")}</p>
+            <p className="mt-0.5 text-[12px] text-ink-500">{t("review.prompt")}</p>
           </div>
         ) : (
           <>
             <div className="mt-4">
-              <p className="text-[12.5px] font-medium text-ink-700">How was it overall?</p>
+              <p className="text-[12.5px] font-medium text-ink-700">{kind === "item" ? t("review.howWasFood") : t("review.howWasVisit")}</p>
               <div className="mt-1.5">
-                <StarPicker value={rating} onChange={setRating} label="Overall rating" />
+                <StarPicker value={rating} onChange={setRating} label={t("review.howWasFood")} />
               </div>
             </div>
 
             <div className="mt-4 space-y-2">
               {SUB_SCORES[kind].map((field) => (
                 <div key={field.key} className="flex items-center justify-between gap-3">
-                  <span className="text-[12.5px] text-ink-600">{field.label}</span>
+                  <span className="text-[12.5px] text-ink-600">{t(field.labelKey)}</span>
                   <StarPicker
                     size="sm"
-                    label={field.label}
+                    label={t(field.labelKey)}
                     value={scores[field.key] ?? 0}
                     onChange={(next) => setScores((prev) => ({ ...prev, [field.key]: next }))}
                   />
@@ -171,14 +173,14 @@ export function ReviewSheet({
 
             <div className="mt-4">
               <label htmlFor="review-comment" className="text-[12.5px] font-medium text-ink-700">
-                Anything you would like to add? <span className="font-normal text-ink-400">(optional)</span>
+                {t("review.commentLabel")} <span className="font-normal text-ink-400">{t("review.commentOptional")}</span>
               </label>
               <Textarea
                 id="review-comment"
                 rows={3}
                 value={comment}
                 onChange={(event) => setComment(event.target.value.slice(0, 2000))}
-                placeholder="What stood out — good or not so good?"
+                placeholder={t("review.commentPlaceholder")}
                 className="mt-1"
               />
             </div>
@@ -191,14 +193,14 @@ export function ReviewSheet({
 
             <div className="mt-4 flex gap-2">
               <Button variant="ghost" onClick={onClose} className="flex-1">
-                Not now
+                {t("action.cancel")}
               </Button>
               <Button onClick={submit} disabled={busy || rating < 1} className="flex-[2]">
-                {busy ? "Sending…" : "Send review"}
+                {busy ? t("review.submitting") : t("review.submit")}
               </Button>
             </div>
             <p className="mt-2 text-center text-[11px] text-ink-400">
-              Reviews are tied to this order. Sub-scores are optional.
+              {t("review.prompt")}
             </p>
           </>
         )}

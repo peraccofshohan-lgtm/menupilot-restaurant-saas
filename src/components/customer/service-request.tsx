@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { BellRing, CircleCheck, Droplets, ReceiptText, Sparkles, UtensilsCrossed } from "lucide-react";
 import { cx } from "@/components/ui";
+import { useT } from "@/lib/i18n/client";
 
 /**
  * Table service requests.
@@ -14,11 +15,11 @@ import { cx } from "@/components/ui";
  */
 
 const OPTIONS = [
-  { kind: "waiter", label: "Call waiter", icon: BellRing },
-  { kind: "water", label: "Water", icon: Droplets },
-  { kind: "plate", label: "Extra plate", icon: UtensilsCrossed },
-  { kind: "bill", label: "Request bill", icon: ReceiptText },
-  { kind: "other", label: "Something else", icon: Sparkles },
+  { kind: "waiter", labelKey: "service.callWaiter", icon: BellRing },
+  { kind: "water", labelKey: "service.water", icon: Droplets },
+  { kind: "plate", labelKey: "service.plate", icon: UtensilsCrossed },
+  { kind: "bill", labelKey: "service.bill", icon: ReceiptText },
+  { kind: "other", labelKey: "service.other", icon: Sparkles },
 ] as const;
 
 type Kind = (typeof OPTIONS)[number]["kind"];
@@ -30,6 +31,7 @@ export function ServiceRequest({
   token: string;
   existing: { kind: string; status: string; created_at: string }[];
 }) {
+  const t = useT();
   const router = useRouter();
   const [busy, setBusy] = React.useState<Kind | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -48,13 +50,13 @@ export function ServiceRequest({
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
       if (!data.ok) {
-        setError(data.error ?? "That request could not be sent.");
+        setError(data.error ?? t("error.generic"));
         return;
       }
       setJustSent(kind);
       router.refresh();
     } catch {
-      setError("Network problem — the request did not reach the restaurant.");
+      setError(t("error.network"));
     } finally {
       setBusy(null);
     }
@@ -83,7 +85,7 @@ export function ServiceRequest({
             >
               {open ? <CircleCheck className="size-4 shrink-0 text-moss-600" aria-hidden /> : <Icon className="size-4 shrink-0 text-ink-400" aria-hidden />}
               <span className="min-w-0 truncate">
-                {open ? `${option.label} · on the way` : busy === option.kind ? "Sending…" : option.label}
+                {open ? `${t(option.labelKey)} · ${t("service.acknowledged")}` : busy === option.kind ? t("state.sending") : t(option.labelKey)}
               </span>
             </button>
           );
@@ -91,7 +93,7 @@ export function ServiceRequest({
       </div>
 
       {justSent && !error ? (
-        <p className="mt-2 text-[11.5px] text-moss-700">A member of staff has been notified.</p>
+        <p className="mt-2 text-[11.5px] text-moss-700">{t("service.sent")}</p>
       ) : null}
       {error ? (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-900" role="alert">

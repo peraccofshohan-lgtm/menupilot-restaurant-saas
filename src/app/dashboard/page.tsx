@@ -29,7 +29,7 @@ import { getOverview } from "@/lib/services/overview";
 import { formatMoney, formatNumber, timeAgo, percent } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Overview" };
+export const metadata = { title: "সারসংক্ষেপ" };
 
 export default async function DashboardPage({
   searchParams,

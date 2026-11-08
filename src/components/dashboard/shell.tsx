@@ -7,51 +7,52 @@ import { BarChart3, BellRing, ChefHat, ChevronsUpDown, ExternalLink, LayoutDashb
 import { cx } from "@/components/ui";
 import type { TenantContext, TenantRole } from "@/lib/auth/server";
 import { logoutAction, switchRestaurantAction } from "@/lib/actions/auth";
+import { useT } from "@/lib/i18n/client";
 
 interface NavItem {
   href: string;
-  label: string;
+  labelKey: string;
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   roles: TenantRole[];
   exact?: boolean;
 }
 
-const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+const NAV_GROUPS: { labelKey: string; items: NavItem[] }[] = [
   {
-    label: "Operations",
+    labelKey: "nav.operations",
     items: [
-      { href: "/dashboard", label: "Overview", icon: LayoutDashboard, roles: ["owner", "manager", "kitchen", "waiter"], exact: true },
-      { href: "/dashboard/orders", label: "Orders", icon: ReceiptText, roles: ["owner", "manager", "waiter"] },
-      { href: "/dashboard/kitchen", label: "Kitchen display", icon: ChefHat, roles: ["owner", "manager", "kitchen", "waiter"] },
-      { href: "/dashboard/service", label: "Service requests", icon: BellRing, roles: ["owner", "manager", "kitchen", "waiter"] },
-      { href: "/dashboard/tables", label: "Tables & QR", icon: QrCode, roles: ["owner", "manager"] },
+      { href: "/dashboard", labelKey: "nav.overview", icon: LayoutDashboard, roles: ["owner", "manager", "kitchen", "waiter"], exact: true },
+      { href: "/dashboard/orders", labelKey: "nav.orders", icon: ReceiptText, roles: ["owner", "manager", "waiter"] },
+      { href: "/dashboard/kitchen", labelKey: "nav.kitchen", icon: ChefHat, roles: ["owner", "manager", "kitchen", "waiter"] },
+      { href: "/dashboard/service", labelKey: "nav.service", icon: BellRing, roles: ["owner", "manager", "kitchen", "waiter"] },
+      { href: "/dashboard/tables", labelKey: "nav.tables", icon: QrCode, roles: ["owner", "manager"] },
     ],
   },
   {
-    label: "Restaurant",
+    labelKey: "nav.restaurant",
     items: [
-      { href: "/dashboard/menu", label: "Menu", icon: UtensilsCrossed, roles: ["owner", "manager"] },
-      { href: "/dashboard/categories", label: "Categories", icon: MenuIcon, roles: ["owner", "manager"] },
-      { href: "/dashboard/customers", label: "Customers", icon: Users, roles: ["owner", "manager"] },
-      { href: "/dashboard/reviews", label: "Reviews", icon: Star, roles: ["owner", "manager"] },
+      { href: "/dashboard/menu", labelKey: "nav.menu", icon: UtensilsCrossed, roles: ["owner", "manager"] },
+      { href: "/dashboard/categories", labelKey: "nav.categories", icon: MenuIcon, roles: ["owner", "manager"] },
+      { href: "/dashboard/customers", labelKey: "nav.customers", icon: Users, roles: ["owner", "manager"] },
+      { href: "/dashboard/reviews", labelKey: "nav.reviews", icon: Star, roles: ["owner", "manager"] },
     ],
   },
   {
-    label: "Business",
+    labelKey: "nav.business",
     items: [
-      { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, roles: ["owner", "manager"] },
-      { href: "/dashboard/staff", label: "Staff", icon: Shield, roles: ["owner"] },
-      { href: "/dashboard/settings", label: "Settings", icon: Settings, roles: ["owner", "manager"] },
-      { href: "/dashboard/demo", label: "Demo data", icon: RotateCcw, roles: ["owner"] },
+      { href: "/dashboard/analytics", labelKey: "nav.analytics", icon: BarChart3, roles: ["owner", "manager"] },
+      { href: "/dashboard/staff", labelKey: "nav.staff", icon: Shield, roles: ["owner"] },
+      { href: "/dashboard/settings", labelKey: "nav.settings", icon: Settings, roles: ["owner", "manager"] },
+      { href: "/dashboard/demo", labelKey: "nav.demo", icon: RotateCcw, roles: ["owner"] },
     ],
   },
 ];
 
-const ROLE_LABEL: Record<TenantRole, string> = {
-  owner: "Owner",
-  manager: "Manager",
-  kitchen: "Kitchen",
-  waiter: "Waiter",
+const ROLE_KEY: Record<TenantRole, string> = {
+  owner: "staff.role.owner",
+  manager: "staff.role.manager",
+  kitchen: "staff.role.kitchen",
+  waiter: "staff.role.service",
 };
 
 export function DashboardShell({
@@ -63,6 +64,7 @@ export function DashboardShell({
   isAdmin: boolean;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [switcherOpen, setSwitcherOpen] = React.useState(false);
@@ -97,14 +99,14 @@ export function DashboardShell({
           </span>
           <span className="min-w-0">
             <span className="block truncate text-[13px] font-semibold leading-tight text-ink-900">{tenant.restaurantName}</span>
-            <span className="block text-[11px] leading-tight text-ink-400">{ROLE_LABEL[tenant.role]} workspace</span>
+            <span className="block text-[11px] leading-tight text-ink-400">{t(ROLE_KEY[tenant.role])}</span>
           </span>
         </Link>
         <button
           type="button"
           className="grid size-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100 lg:hidden"
           onClick={() => setMobileOpen(false)}
-          aria-label="Close navigation"
+          aria-label={t("nav.closeMenu")}
         >
           <X className="size-4" aria-hidden />
         </button>
@@ -118,7 +120,7 @@ export function DashboardShell({
             aria-expanded={switcherOpen}
             className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] font-medium text-ink-600 hover:bg-ink-50"
           >
-            <span className="flex items-center gap-2"><ChevronsUpDown className="size-3.5" aria-hidden /> Switch restaurant</span>
+            <span className="flex items-center gap-2"><ChevronsUpDown className="size-3.5" aria-hidden /> {t("staff.title")}</span>
             <span className="text-[11px] text-ink-400">{tenant.memberships.length}</span>
           </button>
           {switcherOpen ? (
@@ -135,7 +137,7 @@ export function DashboardShell({
                     )}
                   >
                     <span className="truncate">{membership.restaurant_name}</span>
-                    <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-ink-400">{membership.role}</span>
+                    <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-ink-400">{t(ROLE_KEY[membership.role as TenantRole] ?? "staff.role.service")}</span>
                   </button>
                 </li>
               ))}
@@ -144,10 +146,10 @@ export function DashboardShell({
         </div>
       ) : null}
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label="Dashboard">
+      <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label={t("nav.dashboard")}>
         {groups.map((group) => (
-          <div key={group.label} className="mb-4">
-            <p className="px-2.5 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-ink-400">{group.label}</p>
+          <div key={group.labelKey} className="mb-4">
+            <p className="px-2.5 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-ink-400">{t(group.labelKey)}</p>
             <ul className="space-y-0.5">
               {group.items.map((item) => {
                 const active = isActive(item);
@@ -162,7 +164,7 @@ export function DashboardShell({
                       )}
                     >
                       <item.icon className="size-4 shrink-0" aria-hidden />
-                      <span className="truncate">{item.label}</span>
+                      <span className="truncate">{t(item.labelKey)}</span>
                     </Link>
                   </li>
                 );
@@ -178,7 +180,7 @@ export function DashboardShell({
           target="_blank"
           className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-ink-600 hover:bg-ink-50"
         >
-          <span className="truncate">View public menu</span>
+          <span className="truncate">{t("nav.viewMenu")}</span>
           <ExternalLink className="size-3.5 shrink-0" aria-hidden />
         </Link>
         {isAdmin ? (
@@ -186,7 +188,7 @@ export function DashboardShell({
             href="/platform"
             className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-ink-600 hover:bg-ink-50"
           >
-            <Shield className="size-3.5" aria-hidden /> Platform admin
+            <Shield className="size-3.5" aria-hidden /> {t("nav.dashboard")}
           </Link>
         ) : null}
         <form action={logoutAction}>
@@ -194,7 +196,7 @@ export function DashboardShell({
             type="submit"
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-ink-500 hover:bg-ink-50 hover:text-ink-800"
           >
-            <LogOut className="size-3.5" aria-hidden /> Sign out
+            <LogOut className="size-3.5" aria-hidden /> {t("nav.signOut")}
           </button>
         </form>
       </div>
@@ -211,7 +213,7 @@ export function DashboardShell({
             type="button"
             className="absolute inset-0 bg-ink-900/40"
             onClick={() => setMobileOpen(false)}
-            aria-label="Close navigation"
+            aria-label={t("nav.closeMenu")}
           />
           <div className="absolute inset-y-0 left-0 w-[268px] shadow-xl">{sidebar}</div>
         </div>
@@ -223,14 +225,14 @@ export function DashboardShell({
             type="button"
             onClick={() => setMobileOpen(true)}
             className="grid size-9 place-items-center rounded-lg border border-ink-200 bg-white text-ink-600"
-            aria-label="Open navigation"
+            aria-label={t("nav.mainMenu")}
           >
             <MenuIcon className="size-4" aria-hidden />
           </button>
           <span className="truncate text-[13px] font-semibold text-ink-900">{tenant.restaurantName}</span>
           {tenant.isDemo ? (
             <span className="ml-auto rounded-full bg-clay-50 px-2 py-0.5 text-[10.5px] font-medium text-clay-700 ring-1 ring-inset ring-clay-200">
-              Demo
+              {t("nav.demo")}
             </span>
           ) : null}
         </header>

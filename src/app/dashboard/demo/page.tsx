@@ -6,7 +6,7 @@ import { previewDemoReset } from "@/lib/services/demo-reset";
 import { ResetDemoForm } from "./reset-form";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Demo data" };
+export const metadata = { title: "ডেমো ডেটা" };
 
 function Stat({ label, value, muted }: { label: string; value: number | string; muted?: boolean }) {
   return (

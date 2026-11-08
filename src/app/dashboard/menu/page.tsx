@@ -5,7 +5,7 @@ import { getMenu } from "@/lib/services/menu";
 import { ExternalLink } from "lucide-react";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Menu" };
+export const metadata = { title: "মেনু" };
 
 export default async function MenuPage() {
   const tenant = await requireTenant(["owner", "manager"]);

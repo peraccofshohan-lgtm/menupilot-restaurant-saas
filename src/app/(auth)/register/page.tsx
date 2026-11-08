@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/auth/server";
 import { RegisterForm } from "./register-form";
 
-export const metadata: Metadata = { title: "Create your restaurant account" };
+export const metadata: Metadata = { title: "নতুন রেস্টুরেন্ট অ্যাকাউন্ট" };
 
 export default async function RegisterPage() {
   const user = await getCurrentUser();

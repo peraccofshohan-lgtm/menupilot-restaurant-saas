@@ -10,6 +10,9 @@ import type { PublicMenu } from "@/lib/services/orders";
 import { useCart } from "@/lib/customer/cart";
 import { useOrderHistory } from "@/lib/customer/order-history";
 import { cx } from "@/components/ui";
+import { useT } from "@/lib/i18n/client";
+import { localizedName } from "@/lib/i18n/content";
+import { formatNumber, formatReference } from "@/lib/format";
 
 interface PlacedOrder {
   orderNumber: string;
@@ -30,6 +33,7 @@ interface PlacedOrder {
  * double tap or flaky connection cannot create two orders.
  */
 export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: string }) {
+  const t = useT();
   const router = useRouter();
   const { lines, setQuantity, remove, clear, hydrateFor } = useCart();
   const rememberOrder = useOrderHistory((state) => state.remember);
@@ -96,7 +100,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
       });
       const data = (await res.json()) as { ok: boolean; order?: PlacedOrder; error?: string };
       if (!data.ok || !data.order) {
-        setError(data.error ?? "We could not place your order. Please try again.");
+        setError(data.error ?? t("placed.errorGeneric"));
         setSubmitting(false);
         return;
       }
@@ -127,7 +131,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
         setSubmitting(false);
       }
     } catch {
-      setError("Your connection dropped while sending the order. Check with your server before trying again.");
+      setError(t("placed.errorConnection"));
       setSubmitting(false);
     }
   }
@@ -138,23 +142,25 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
         <div className="mx-auto grid size-14 place-items-center rounded-full bg-moss-50 text-moss-600">
           <Receipt className="size-6" aria-hidden />
         </div>
-        <h1 className="mt-4 text-xl font-semibold text-ink-900">Order sent to the restaurant</h1>
+        <h1 className="mt-4 text-xl font-semibold text-ink-900">{t("placed.title")}</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-600">
-          {menu.table?.label ?? "Your table"} · {placed.itemCount} item{placed.itemCount === 1 ? "" : "s"} ·{" "}
-          {formatMoney(placed.total, placed.currency)}
+          {t("placed.summary", {
+            table: menu.table?.label ?? t("unit.table"),
+            count: formatNumber(placed.itemCount),
+            total: formatMoney(placed.total, placed.currency),
+          })}
         </p>
-        <p className="mt-1 text-[12.5px] text-ink-400">Reference {placed.orderNumber}</p>
+        <p className="mt-1 text-[12.5px] text-ink-400">{t("placed.reference", { number: formatReference(placed.orderNumber) })}</p>
         {placed.trackingToken ? (
           <Link
             href={`/order/${placed.trackingToken}`}
             className="mt-6 inline-flex h-11 items-center rounded-xl bg-clay-600 px-5 text-[13.5px] font-semibold text-white"
           >
-            Follow your order
+            {t("placed.trackOrder")}
           </Link>
         ) : (
           <p className="mx-auto mt-6 max-w-sm text-[12.5px] leading-relaxed text-ink-500">
-            This order was already sent from this device, so the live tracker link is not shown again.
-            Show your reference number at the counter.
+            {t("placed.replayNotice")}
           </p>
         )}
       </main>
@@ -167,13 +173,13 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
         <div className="mx-auto grid size-12 place-items-center rounded-full bg-ink-100 text-ink-500">
           <ChefHat className="size-5" aria-hidden />
         </div>
-        <h1 className="mt-4 text-lg font-semibold text-ink-900">Your order is empty</h1>
-        <p className="mt-1.5 text-[13px] text-ink-500">Add a few dishes from the menu and come back.</p>
+        <h1 className="mt-4 text-lg font-semibold text-ink-900">{t("cart.empty")}</h1>
+        <p className="mt-1.5 text-[13px] text-ink-500">{t("cart.emptyHint")}</p>
         <Link
           href={`/menu/${menu.restaurant.slug}?t=${encodeURIComponent(qrToken)}`}
           className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 text-[13px] font-medium text-ink-800"
         >
-          <ArrowLeft className="size-3.5" aria-hidden /> Back to the menu
+          <ArrowLeft className="size-3.5" aria-hidden /> {t("cart.backToMenu")}
         </Link>
       </main>
     );
@@ -186,7 +192,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
           href={`/menu/${menu.restaurant.slug}?t=${encodeURIComponent(qrToken)}`}
           className="inline-flex items-center gap-1 text-[12.5px] font-medium text-ink-500 hover:text-ink-800"
         >
-          <ArrowLeft className="size-3.5" aria-hidden /> Menu
+          <ArrowLeft className="size-3.5" aria-hidden /> {t("menu.title")}
         </Link>
         {menu.table ? (
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-moss-50 px-2 py-1 text-[11.5px] font-semibold text-moss-700 ring-1 ring-inset ring-moss-100">
@@ -195,19 +201,18 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
         ) : null}
       </div>
 
-      <h1 className="mt-3 text-xl font-semibold text-ink-900">Review your order</h1>
+      <h1 className="mt-3 text-xl font-semibold text-ink-900">{t("cart.title")}</h1>
       <p className="mt-0.5 text-[12.5px] text-ink-500">
-        {menu.restaurant.name} · payment at the counter after your meal
+        {menu.restaurant.name} · {t("cart.checkout")}
       </p>
 
       {unavailable.length > 0 ? (
         <div className="mt-3 flex gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-[12.5px] text-amber-900 ring-1 ring-inset ring-amber-200" role="alert">
           <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <div>
-            <p className="font-semibold">Some dishes just sold out</p>
+            <p className="font-semibold">{t("menu.soldOut")}</p>
             <p className="mt-0.5">
-              {unavailable.map((entry) => entry.item.name).join(", ")} {unavailable.length === 1 ? "is" : "are"} no longer
-              available. Remove {unavailable.length === 1 ? "it" : "them"} to continue.
+              {t("cart.unavailableWarning", { names: unavailable.map((entry) => localizedName(entry.item)).join(", ") })}
             </p>
           </div>
         </div>
@@ -219,7 +224,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
             <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-ink-100">
               {item.image_path ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={mediaUrl("menu", item.image_path)!} alt={item.name} className="size-full object-cover" />
+                <img src={mediaUrl("menu", item.image_path)!} alt={localizedName(item)} className="size-full object-cover" />
               ) : (
                 <span className="grid size-full place-items-center text-ink-300"><ChefHat className="size-4" aria-hidden /></span>
               )}
@@ -227,10 +232,10 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-[13.5px] font-semibold text-ink-900">{item.name}</p>
+                  <p className="text-[13.5px] font-semibold text-ink-900">{localizedName(item)}</p>
                   <p className="text-[12px] text-ink-500">
-                    {formatMoney(item.price, currency)} each
-                    {!item.is_available ? " · sold out" : ""}
+                    {formatMoney(item.price, currency)}
+                    {!item.is_available ? ` · ${t("menu.soldOut")}` : ""}
                   </p>
                 </div>
                 <p className="shrink-0 text-[13px] font-semibold tabular-nums text-ink-900">
@@ -246,7 +251,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
                     type="button"
                     onClick={() => setQuantity(item.id, line.quantity - 1)}
                     className="grid size-7 place-items-center rounded-l-lg text-ink-600 hover:bg-ink-100"
-                    aria-label={`Decrease ${item.name}`}
+                    aria-label={`${t("cart.decreaseQty")} — ${localizedName(item)}`}
                   >
                     <Minus className="size-3" aria-hidden />
                   </button>
@@ -255,7 +260,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
                     type="button"
                     onClick={() => setQuantity(item.id, line.quantity + 1)}
                     className="grid size-7 place-items-center rounded-r-lg text-ink-600 hover:bg-ink-100"
-                    aria-label={`Increase ${item.name}`}
+                    aria-label={`${t("cart.increaseQty")} — ${localizedName(item)}`}
                   >
                     <Plus className="size-3" aria-hidden />
                   </button>
@@ -265,7 +270,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
                   onClick={() => remove(item.id)}
                   className="inline-flex items-center gap-1 text-[11.5px] font-medium text-red-600 hover:underline"
                 >
-                  <Trash2 className="size-3" aria-hidden /> Remove
+                  <Trash2 className="size-3" aria-hidden /> {t("action.remove")}
                 </button>
               </div>
             </div>
@@ -274,71 +279,75 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
       </ul>
 
       <section className="mt-4 rounded-xl border border-ink-200 bg-white p-3.5">
-        <h2 className="text-[13px] font-semibold text-ink-900">Table &amp; guest details</h2>
+        <h2 className="text-[13px] font-semibold text-ink-900">{t("cart.title")}</h2>
         <p className="mt-0.5 text-[11.5px] text-ink-500">
-          {menu.table?.label ?? "Your table"} is attached automatically by your QR code — you cannot change it here.
+          {t("cart.tableAttached", { table: menu.table?.label ?? t("unit.table") })}
         </p>
         <div className="mt-2.5 grid gap-2.5 sm:grid-cols-2">
           <div>
             <label htmlFor="guest-name" className="text-[12px] font-medium text-ink-700">
-              Name {nameRequired ? <span className="text-clay-600">*</span> : <span className="font-normal text-ink-400">(optional)</span>}
+              {t("cart.yourName")} {nameRequired ? <span className="text-clay-600">*</span> : <span className="font-normal text-ink-400">{t("cart.nameOptional")}</span>}
             </label>
             <input
               id="guest-name"
               value={name}
               onChange={(event) => setName(event.target.value.slice(0, 80))}
-              placeholder="So we can call your name"
+              placeholder={t("cart.namePlaceholder")}
               className="mt-1 h-10 w-full rounded-lg border border-ink-200 px-2.5 text-[13px] focus:border-clay-500 focus:outline-none focus:ring-2 focus:ring-clay-500/25"
             />
           </div>
           <div>
             <label htmlFor="guest-phone" className="text-[12px] font-medium text-ink-700">
-              Phone <span className="font-normal text-ink-400">(optional)</span>
+              {t("cart.phoneLabel")} <span className="font-normal text-ink-400">{t("cart.nameOptional")}</span>
             </label>
             <input
               id="guest-phone"
               value={phone}
               onChange={(event) => setPhone(event.target.value.slice(0, 24))}
               inputMode="tel"
-              placeholder="For your receipt"
+              placeholder={t("cart.phonePlaceholder")}
               className="mt-1 h-10 w-full rounded-lg border border-ink-200 px-2.5 text-[13px] focus:border-clay-500 focus:outline-none focus:ring-2 focus:ring-clay-500/25"
             />
           </div>
         </div>
         <div className="mt-2.5">
           <label htmlFor="order-note" className="text-[12px] font-medium text-ink-700">
-            Note for the kitchen <span className="font-normal text-ink-400">(optional)</span>
+            {t("cart.noteLabel")} <span className="font-normal text-ink-400">{t("cart.nameOptional")}</span>
           </label>
           <textarea
             id="order-note"
             value={note}
             onChange={(event) => setNote(event.target.value.slice(0, 300))}
             rows={2}
-            placeholder="Allergies, timing, anything we should know"
+            placeholder={t("cart.notePlaceholder")}
             className="mt-1 w-full rounded-lg border border-ink-200 px-2.5 py-2 text-[13px] focus:border-clay-500 focus:outline-none focus:ring-2 focus:ring-clay-500/25"
           />
         </div>
       </section>
 
       <section className="mt-4 rounded-xl border border-ink-200 bg-white p-3.5">
-        <h2 className="text-[13px] font-semibold text-ink-900">Bill estimate</h2>
+        <h2 className="text-[13px] font-semibold text-ink-900">{t("generic.total")}</h2>
         <dl className="mt-2 space-y-1.5 text-[12.5px]">
-          <div className="flex justify-between"><dt className="text-ink-500">Subtotal ({count} items)</dt><dd className="font-medium tabular-nums">{formatMoney(subtotal, currency)}</dd></div>
+          <div className="flex justify-between"><dt className="text-ink-500">{t("cart.subtotal")}</dt><dd className="font-medium tabular-nums">{formatMoney(subtotal, currency)}</dd></div>
           {Number(menu.settings.service_charge_rate) > 0 ? (
-            <div className="flex justify-between"><dt className="text-ink-500">{menu.settings.service_charge_label} ({Number(menu.settings.service_charge_rate)}%)</dt><dd className="font-medium tabular-nums">{formatMoney(service, currency)}</dd></div>
+            <div className="flex justify-between"><dt className="text-ink-500">{t("cart.serviceCharge")} ({formatNumber(Number(menu.settings.service_charge_rate))}%)</dt><dd className="font-medium tabular-nums">{formatMoney(service, currency)}</dd></div>
           ) : null}
           {Number(menu.settings.tax_rate) > 0 ? (
-            <div className="flex justify-between"><dt className="text-ink-500">{menu.settings.tax_label} ({Number(menu.settings.tax_rate)}%)</dt><dd className="font-medium tabular-nums">{formatMoney(tax, currency)}</dd></div>
+            <div className="flex justify-between"><dt className="text-ink-500">{menu.settings.tax_label} ({formatNumber(Number(menu.settings.tax_rate))}%)</dt><dd className="font-medium tabular-nums">{formatMoney(tax, currency)}</dd></div>
           ) : null}
           <div className="flex justify-between border-t border-ink-100 pt-1.5">
-            <dt className="text-[13px] font-semibold text-ink-900">Total</dt>
+            <dt className="text-[13px] font-semibold text-ink-900">{t("cart.total")}</dt>
             <dd className="text-[14px] font-semibold tabular-nums text-ink-900">{formatMoney(total, currency)}</dd>
           </div>
         </dl>
         <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-ink-400">
           <Info className="mt-0.5 size-3 shrink-0" aria-hidden />
-          The restaurant recalculates this total from its live menu when your order is received, so the final figure may
-          differ if a price changed while you were browsing.
+          {t("menu.taxNote", {
+            taxLabel: menu.settings.tax_label,
+            taxRate: formatNumber(Number(menu.settings.tax_rate)),
+            serviceLabel: menu.settings.service_charge_label,
+            serviceRate: formatNumber(Number(menu.settings.service_charge_rate)),
+          })}
         </p>
       </section>
 
@@ -351,7 +360,7 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-200 bg-white/95 px-4 py-3 backdrop-blur-sm">
         <div className="mx-auto flex max-w-2xl items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-[12px] text-ink-500">{count} item{count === 1 ? "" : "s"} · {menu.table?.label ?? "Table"}</p>
+            <p className="text-[12px] text-ink-500">{formatNumber(count)} {t("unit.items")} · {menu.table?.label ?? t("unit.table")}</p>
             <p className="text-[15px] font-semibold tabular-nums text-ink-900">{formatMoney(total, currency)}</p>
           </div>
           <button
@@ -365,11 +374,11 @@ export function CartCheckout({ menu, qrToken }: { menu: PublicMenu; qrToken: str
                 : "bg-clay-600 hover:bg-clay-700",
             )}
           >
-            {submitting ? "Sending…" : "Place order"}
+            {submitting ? t("cart.sending") : t("cart.placeOrder")}
           </button>
         </div>
         {nameRequired && !name.trim() ? (
-          <p className="mx-auto mt-1 max-w-2xl text-[11px] text-amber-700">This restaurant asks for a name with every order.</p>
+          <p className="mx-auto mt-1 max-w-2xl text-[11px] text-amber-700">{t("cart.nameRequired")}</p>
         ) : null}
       </div>
     </main>

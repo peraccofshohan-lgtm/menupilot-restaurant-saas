@@ -4,7 +4,7 @@ import { getMenuForQrToken } from "@/lib/services/orders";
 import { CartCheckout } from "@/components/customer/cart-checkout";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Review your order", robots: { index: false } };
+export const metadata: Metadata = { title: "আপনার ঝুড়ি", robots: { index: false } };
 
 export default async function CartPage({
   params,

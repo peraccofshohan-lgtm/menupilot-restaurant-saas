@@ -9,25 +9,28 @@ import { EtaTimer } from "@/components/customer/eta-timer";
 import { ServiceRequest } from "@/components/customer/service-request";
 import { ReviewControls } from "@/components/customer/review-controls";
 import { getTrackedOrder, orderNotifications } from "@/lib/services/orders";
+import { getTranslator } from "@/lib/i18n/server";
+import { localizedName } from "@/lib/i18n/content";
 import { etaState } from "@/lib/services/reviews";
 import { formatDateTime, formatMoney, timeAgo } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = {
-  title: "Your order",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getTranslator();
+  return { title: t("track.title"), robots: { index: false, follow: false } };
+}
 
 const STEPS = [
-  { key: "pending", label: "Order placed", detail: "Sent to the restaurant." },
-  { key: "accepted", label: "Order accepted", detail: "The kitchen has your ticket." },
-  { key: "preparing", label: "Preparing", detail: "Cooking now." },
-  { key: "ready", label: "Ready", detail: "Coming to your table." },
-  { key: "served", label: "Served", detail: "Enjoy your meal." },
+  { key: "pending", labelKey: "track.step.placed", detailKey: "track.step.placedDetail" },
+  { key: "accepted", labelKey: "track.step.accepted", detailKey: "track.step.acceptedDetail" },
+  { key: "preparing", labelKey: "track.step.preparing", detailKey: "track.step.preparingDetail" },
+  { key: "ready", labelKey: "track.step.ready", detailKey: "track.step.readyDetail" },
+  { key: "served", labelKey: "track.step.served", detailKey: "track.step.servedDetail" },
 ];
 
 export default async function OrderTrackingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const { t } = await getTranslator();
   const order = await getTrackedOrder(token);
   if (!order) notFound();
 
@@ -70,16 +73,16 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
         <Card className="mt-4 p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-ink-400">Current status</p>
+              <p className="text-[11px] uppercase tracking-wide text-ink-400">{t("track.currentStatus")}</p>
               <p className="mt-0.5 text-[16px] font-semibold text-ink-900">
                 {isClosed
-                  ? order.status === "rejected" ? "The restaurant could not take this order" : "This order was cancelled"
-                  : STEPS[Math.max(0, activeIndex)]?.label ?? "Pending"}
+                  ? order.status === "rejected" ? t("track.rejected") : t("track.cancelled")
+                  : t(STEPS[Math.max(0, activeIndex)]?.labelKey ?? "track.step.placed")}
               </p>
               <p className="mt-0.5 text-[12px] text-ink-500">
                 {isClosed
-                  ? order.rejection_reason ?? "Please speak to a member of staff."
-                  : STEPS[Math.max(0, activeIndex)]?.detail}
+                  ? order.rejection_reason ?? t("track.rejectedHint")
+                  : t(STEPS[Math.max(0, activeIndex)]?.detailKey ?? "track.step.placedDetail")}
               </p>
             </div>
             {isClosed ? <XCircle className="size-6 shrink-0 text-red-500" aria-hidden /> : <Clock3 className="size-6 shrink-0 text-clay-500" aria-hidden />}
@@ -114,9 +117,9 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
                     </div>
                     <div className="pb-1">
                       <p className={current ? "text-[13px] font-semibold text-ink-900" : done ? "text-[13px] font-medium text-ink-700" : "text-[13px] text-ink-400"}>
-                        {step.label}
+                        {t(step.labelKey)}
                       </p>
-                      <p className="text-[11.5px] text-ink-400">{step.detail}</p>
+                      <p className="text-[11.5px] text-ink-400">{t(step.detailKey)}</p>
                     </div>
                   </li>
                 );
@@ -128,8 +131,8 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
         {feed.length > 0 ? (
           <Card className="mt-4 p-4">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-[13px] font-semibold text-ink-900">Activity</h2>
-              <span className="text-[10.5px] text-ink-400">updates on its own</span>
+              <h2 className="text-[13px] font-semibold text-ink-900">{t("track.activity")}</h2>
+              <span className="text-[10.5px] text-ink-400">{t("track.activityAuto")}</span>
             </div>
             <ol className="mt-2.5 space-y-0">
               {feed.map((event, index) => (
@@ -159,7 +162,7 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
         ) : null}
 
         <Card className="mt-4 p-4">
-          <h2 className="text-[13px] font-semibold text-ink-900">Your order</h2>
+          <h2 className="text-[13px] font-semibold text-ink-900">{t("track.ourOrder")}</h2>
           <ul className="mt-2 divide-y divide-ink-100">
             {order.items.map((item, index) => (
               <li key={`${item.name}-${index}`} className="flex items-start justify-between gap-3 py-2">
@@ -168,7 +171,7 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
                     <span className="mr-1.5 inline-flex min-w-5 justify-center rounded bg-ink-100 px-1 text-[11px] font-semibold tabular-nums text-ink-600">
                       {item.quantity}×
                     </span>
-                    {item.name}
+                    {localizedName(item)}
                   </p>
                   {item.note ? <p className="text-[11.5px] text-clay-700">↳ {item.note}</p> : null}
                   {item.prep_status === "preparing" && order.status === "preparing" ? (
@@ -180,13 +183,18 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
             ))}
           </ul>
           <dl className="mt-2 space-y-1 border-t border-ink-100 pt-2 text-[12.5px]">
-            <div className="flex justify-between"><dt className="text-ink-500">Subtotal</dt><dd className="tabular-nums">{formatMoney(order.subtotal, order.currency)}</dd></div>
-            {Number(order.service_charge) > 0 ? <div className="flex justify-between"><dt className="text-ink-500">Service charge</dt><dd className="tabular-nums">{formatMoney(order.service_charge, order.currency)}</dd></div> : null}
-            {Number(order.tax_amount) > 0 ? <div className="flex justify-between"><dt className="text-ink-500">Tax</dt><dd className="tabular-nums">{formatMoney(order.tax_amount, order.currency)}</dd></div> : null}
-            <div className="flex justify-between border-t border-ink-100 pt-1"><dt className="font-semibold text-ink-900">Total</dt><dd className="text-[14px] font-semibold tabular-nums text-ink-900">{formatMoney(order.total, order.currency)}</dd></div>
+            <div className="flex justify-between"><dt className="text-ink-500">{t("cart.subtotal")}</dt><dd className="tabular-nums">{formatMoney(order.subtotal, order.currency)}</dd></div>
+            {Number(order.service_charge) > 0 ? <div className="flex justify-between"><dt className="text-ink-500">{t("cart.serviceCharge")}</dt><dd className="tabular-nums">{formatMoney(order.service_charge, order.currency)}</dd></div> : null}
+            {Number(order.tax_amount) > 0 ? <div className="flex justify-between"><dt className="text-ink-500">{t("cart.tax")}</dt><dd className="tabular-nums">{formatMoney(order.tax_amount, order.currency)}</dd></div> : null}
+            <div className="flex justify-between border-t border-ink-100 pt-1"><dt className="font-semibold text-ink-900">{t("cart.total")}</dt><dd className="text-[14px] font-semibold tabular-nums text-ink-900">{formatMoney(order.total, order.currency)}</dd></div>
           </dl>
           <p className="mt-2 text-[11.5px] text-ink-400">
-            Placed {formatDateTime(order.placed_at)} · {timeAgo(order.placed_at)} · payment {order.payment_status === "paid" ? "settled" : "at the counter"}
+            {t("track.placedAt", {
+              time: formatDateTime(order.placed_at),
+              ago: timeAgo(order.placed_at),
+            })} · {t("track.payment", {
+              status: order.payment_status === "paid" ? t("track.paymentSettled") : t("track.paymentCounter"),
+            })}
           </p>
         </Card>
 
@@ -195,9 +203,9 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
             <div className="flex items-start gap-2">
               <Star className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
               <div>
-                <h2 className="text-[13px] font-semibold text-ink-900">How was your meal?</h2>
+                <h2 className="text-[13px] font-semibold text-ink-900">{t("review.title")}</h2>
                 <p className="text-[11.5px] text-ink-500">
-                  You can rate each dish you ordered, and the visit as a whole.
+                  {t("review.prompt")}
                 </p>
               </div>
             </div>
@@ -208,8 +216,8 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
                   .map((review) => (
                     <div key={review.id} className="rounded-lg border-l-2 border-clay-300 bg-clay-50/60 px-2.5 py-2">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-clay-700">
-                        {order.restaurant.name} replied
-                        {review.item_name ? ` about ${review.item_name}` : ""}
+                        {t("review.restaurantReplied", { name: order.restaurant.name })}
+                        {review.item_name ? ` · ${localizedName({ name: review.item_name })}` : ""}
                       </p>
                       <p className="mt-0.5 text-[12px] leading-relaxed text-ink-700">{review.reply}</p>
                     </div>
@@ -222,7 +230,7 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
                 .filter((item) => item.menu_item_id)
                 .map((item) => ({
                   menuItemId: item.menu_item_id as string,
-                  name: item.name,
+                  name: localizedName(item),
                   reviewed: reviewedItems.has(item.menu_item_id as string),
                 }))}
               restaurantReviewed={Boolean(order.reviews.restaurant_reviewed)}
@@ -231,25 +239,25 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
         ) : !isClosed ? (
           <Card className="mt-4 p-4">
             <p className="text-[12px] text-ink-500">
-              Reviews open once your order has been served — you will see them here.
+              {t("review.onlyServed")}
             </p>
           </Card>
         ) : null}
 
         {!isClosed ? (
           <Card className="mt-4 p-4">
-            <h2 className="text-[13px] font-semibold text-ink-900">Need something?</h2>
-            <p className="text-[11.5px] text-ink-500">Ask a member of staff without leaving your seat.</p>
+            <h2 className="text-[13px] font-semibold text-ink-900">{t("service.title")}</h2>
+            <p className="text-[11.5px] text-ink-500">{t("service.notePlaceholder")}</p>
             <ServiceRequest token={token} existing={order.service_requests ?? []} />
           </Card>
         ) : null}
 
         <p className="mt-4 text-center text-[11.5px] leading-relaxed text-ink-400">
-          Keep this page open to follow progress. Bookmark it — the link is unique to your order and cannot be guessed.
+          {t("track.activityAuto")}
           {order.restaurant.phone ? (
             <>
               <br />
-              Questions? Call{" "}
+              {t("menu.callRestaurant")}{" "}
               <a href={`tel:${order.restaurant.phone}`} className="font-medium text-clay-700 hover:underline">
                 {order.restaurant.phone}
               </a>
@@ -257,7 +265,7 @@ export default async function OrderTrackingPage({ params }: { params: Promise<{ 
           ) : null}
           <br />
           <Link href={`/menu/${order.restaurant.slug}`} className="font-medium text-clay-700 hover:underline">
-            Back to {order.restaurant.name}
+            {t("history.viewMenu")}
           </Link>
         </p>
       </div>

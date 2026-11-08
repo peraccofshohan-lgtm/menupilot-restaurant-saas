@@ -2,16 +2,19 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getMenuBySlug, getMenuForQrToken } from "@/lib/services/orders";
 import { GuestMenu } from "@/components/customer/guest-menu";
+import { getTranslator } from "@/lib/i18n/server";
+import { localizedRestaurant } from "@/lib/i18n/content";
 
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const menu = await getMenuBySlug(slug);
-  if (!menu) return { title: "Menu not found" };
+  const [menu, { t }] = await Promise.all([getMenuBySlug(slug), getTranslator()]);
+  if (!menu) return { title: t("error.notFound") };
+  const brand = localizedRestaurant(menu.restaurant);
   return {
-    title: `${menu.restaurant.name} · Menu`,
-    description: menu.restaurant.tagline ?? menu.restaurant.description ?? `Order from ${menu.restaurant.name} on MenuPilot.`,
+    title: `${brand.name} · ${t("menu.title")}`,
+    description: brand.tagline ?? brand.description ?? t("app.description"),
   };
 }
 

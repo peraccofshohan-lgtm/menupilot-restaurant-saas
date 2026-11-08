@@ -6,7 +6,7 @@ import { getCustomers } from "@/lib/services/staff";
 import { formatDay, formatMoney, initials } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Customers" };
+export const metadata = { title: "কাস্টমার" };
 
 export default async function CustomersPage({
   searchParams,
